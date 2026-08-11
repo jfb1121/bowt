@@ -5,9 +5,11 @@ Tracks everything that must exist for bowt to fully replace the bash `twig`
 extension system) **plus** the five planned RFC items. Status keys:
 `[x]` done · `[~]` partial · `[ ]` pending · `[?]` reconsider/obsolete.
 
-> Snapshot: slice 1 landed (worktree CRUD + state + lock primitive + JSON
-> output). Roughly 4 of ~16 core commands done; substrate, agent layer, and
-> extension system are almost entirely ahead.
+> Snapshot: landed so far — worktree CRUD + `exec`/`cd`/`root`, SQLite registry,
+> per-worktree flock lock, config loading + `BOWT_*`/`GWT_*` env + lifecycle
+> hooks, and a cobra dispatch with generated shell completion (incl. dynamic
+> worktree-name completion). Next: `--code-only`, then `spawn` + versioned
+> prompts, then `gate`. The agent layer, extension system, and `review` are ahead.
 
 ## A. Core commands (twig.sh dispatch)
 
@@ -21,7 +23,7 @@ extension system) **plus** the five planned RFC items. Status keys:
 - [ ] `setup [branch]` — run pre-setup.sh + setup.sh
 - [ ] `sync` — stash → fetch → rebase main → setup → pop
 - [ ] `doctor [--agent X]` — validate deps / ports / registry / provider
-- [x] `help` — basic usage (expand as commands land)
+- [x] `help` — cobra per-command help/usage/flags + "did you mean" (dispatch migrated to cobra)
 - [ ] `status` (`show`/`add`/`rm`/`init`) — statusLine items (Claude-specific)
 - [ ] `refresh` — regenerate status + docs across all worktrees
 - [ ] `claude` → **`agent`** — launch an agent with a prompt (becomes adapter-driven; keep `claude` alias)
@@ -44,7 +46,7 @@ extension system) **plus** the five planned RFC items. Status keys:
 - [?] `_bowt_signal` — **DEFER (not now; maybe later).** HTTP POST transport whose only consumer was the abandoned dashboard's `/api/twig/signal` → unbounded `signals` table (a DB-heaviness culprit). No listener in terminal-only bowt, so not ported now. If revived later, emit JSON lines to stdout / a bounded local log — never POST-to-DB.
 - [ ] statusLine — generate `.twig-status`, install into `~/.claude/settings.json`, port `statusline.sh` renderer (Claude-specific, adapter-gated)
 - [ ] docs injection on `init` — `twig-docs.md` / `twig-extensions.md` → `.claude/` + `CLAUDE.md` `@`-refs
-- [?] zsh tab-completion (`twig.completion.zsh`) → replace with generated `bowt completion zsh`
+- [x] shell completion — cobra-generated `bowt completion bash|zsh|fish|powershell`, with **dynamic completion** of registered worktree names for `cd`/`rm`/`path`/`exec`; loaded (alongside the `cd` shim) via `shell-init`
 
 ## D. Extension system  *(port the MECHANISM, not the 18 scripts)*
 
