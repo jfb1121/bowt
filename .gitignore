@@ -14,3 +14,9 @@ coverage.*
 /rfc/
 # agent handshake / writeback chatter — always local
 subagent/
+# per-worktree runtime artifacts bowt writes under .bowt/ (the gate verdict, and
+# each lane's captured log + handoff spec). .bowt/gate.sh itself IS tracked — it's
+# bowt's own gate hook — so ignore the artifacts by name, not the whole dir.
+.bowt/gate.json
+.bowt/lane-*.log
+.bowt/lane-*.spec.json
