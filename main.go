@@ -5,13 +5,17 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"text/tabwriter"
 
 	"github.com/jfb1121/bowt/internal/lock"
 	"github.com/jfb1121/bowt/internal/output"
+	"github.com/jfb1121/bowt/internal/repo"
+	"github.com/jfb1121/bowt/internal/shell"
 	"github.com/jfb1121/bowt/internal/state"
 	"github.com/jfb1121/bowt/internal/worktree"
 )
@@ -41,6 +45,14 @@ func main() {
 		err = cmdPath(st, args)
 	case "rm":
 		err = cmdRm(st, args)
+	case "exec":
+		err = cmdExec(st, args)
+	case "root":
+		err = cmdRoot()
+	case "shell-init":
+		err = cmdShellInit(args)
+	case "cd":
+		err = fmt.Errorf(`cd needs the shell integration — run: eval "$(bowt shell-init zsh)"`)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -65,6 +77,10 @@ usage:
   bowt ls [--json]              list worktrees (JSON unless a terminal)
   bowt path <branch>            print a worktree's path
   bowt rm <branch>              remove + deregister a worktree
+  bowt exec <branch> [--] cmd   run a command inside a worktree
+  bowt cd <branch>|main         change directory (needs shell integration)
+  bowt root                     print the main repo path
+  bowt shell-init [bash|zsh]    print shell integration to eval
   bowt version                  print build version
 `)
 }
@@ -149,4 +165,57 @@ func cmdRm(st state.Store, args []string) error {
 	return output.Emit(struct {
 		Removed string `json:"removed"`
 	}{Removed: branch})
+}
+
+func cmdExec(st state.Store, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: bowt exec <branch> [--] <cmd> [args...]")
+	}
+	branch, rest := args[0], args[1:]
+	if len(rest) > 0 && rest[0] == "--" {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 {
+		return fmt.Errorf("usage: bowt exec <branch> [--] <cmd> [args...]")
+	}
+
+	dir, err := worktree.Path(st, branch)
+	if err != nil {
+		return err
+	}
+
+	c := exec.Command(rest[0], rest[1:]...)
+	c.Dir = dir
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		// Propagate the child's exit code rather than masking it as our own.
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			os.Exit(ee.ExitCode())
+		}
+		return err
+	}
+	return nil
+}
+
+func cmdRoot() error {
+	main, err := repo.MainRepo()
+	if err != nil {
+		return err
+	}
+	fmt.Println(main)
+	return nil
+}
+
+func cmdShellInit(args []string) error {
+	sh := "zsh"
+	if len(args) > 0 {
+		sh = args[0]
+	}
+	out, err := shell.Init(sh)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
 }

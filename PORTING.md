@@ -15,8 +15,8 @@ extension system) **plus** the five planned RFC items. Status keys:
 - [x] `ls [--json]` — list (JSON-first)
 - [x] `rm <branch>` — remove + deregister  *(teardown.sh hook still pending — see B)*
 - [x] `path <branch>` — print worktree path (bowt-native; agent-first)
-- [ ] `exec <branch> -- <cmd>` — run a command in a worktree's env (agent-first `cd`)
-- [ ] `cd <branch>` / `main`|`root` — needs the shell shim (`bowt init zsh`); human-only
+- [~] `exec <branch> -- <cmd>` — runs a command in the worktree dir (slice 3a); per-worktree env-var injection lands with the config slice
+- [x] `cd`/`main`/`root` + `shell-init [bash|zsh]` shim — interactive navigation (slice 3a)
 - [ ] `init [template]` — scaffold `.twig`/`.bowt`, docs, statusLine
 - [ ] `setup [branch]` — run pre-setup.sh + setup.sh
 - [ ] `sync` — stash → fetch → rebase main → setup → pop
