@@ -6,3 +6,11 @@
 coverage.*
 # local dev DBs (bowt writes ~/.bowt, not the repo — but just in case)
 *.db
+# local working docs — process/orchestration notes, NOT shipped. Kept out of
+# history to avoid git noise. (Prompts under internal/spawn/prompts/ DO ship —
+# they're go:embed source.)
+/ORCH_CHECKPOINT.md
+/PORTING.md
+/rfc/
+# agent handshake / writeback chatter — always local
+subagent/
