@@ -1288,6 +1288,49 @@ func runningStatus(mode string) state.Status {
 	return state.StatusPlanning
 }
 
+// isRunning reports whether a status is an in-flight state — one a live
+// supervisor holds the worktree lock during (planning/impl) or leaves as the
+// still-open resting state (review). Only a running-state lane is a reconcile
+// candidate; a terminal status (plan-review/paused/done/failed) is never touched.
+func isRunning(s state.Status) bool {
+	return s == state.StatusPlanning || s == state.StatusImpl || s == state.StatusReview
+}
+
+// reconcile is the pure G4 reconcile DECISION for a lane read at cockpit time.
+// It repairs the one SIGKILL edge G2 left: a detached supervisor killed AFTER
+// the agent finished but BEFORE its terminal UpdateLane leaves the row stuck at a
+// running status forever, even though the kernel already released the flock.
+//
+// The rule (the whole decision, as a table):
+//   - lockHeld, OR a non-running status  ⇒ unchanged. A running status with the
+//     lock still HELD is a LIVE lane (never touch it); a terminal status is done.
+//   - a running status with the lock FREE ⇒ a candidate: reconstruct the terminal
+//     status FROM FILES ALONE (the exit code died with the supervisor) via
+//     spawn.ArtifactStatus (the same file-presence half TerminalStatus uses, so a
+//     reconciled verdict can't disagree with a live one), then fold the parsed
+//     comms via applyComms (the same precedence the live path applies: a PAUSED
+//     marker promotes a successful status to paused; ESCALATE only sets the flag).
+//
+// Conservative by construction: ArtifactStatus never yields done/pass, so an
+// absent writeback artifact (the agent died mid-run, not just the supervisor)
+// reconciles to failed, never to a review state. It is PURE — its only inputs are
+// the args plus a filesystem stat of the writeback dir (as TerminalStatus is) —
+// so the whole table is unit-tested without a process. It returns the corrected
+// lane and whether its status changed; only the command persists (self-heal).
+func reconcile(lane state.Lane, lockHeld bool, comms spawn.Comms) (state.Lane, bool, error) {
+	if lockHeld || !isRunning(lane.Status) {
+		return lane, false, nil
+	}
+	base, err := spawn.ArtifactStatus(lane.PromptMode, filepath.Join(lane.Worktree, lane.WritebackDir))
+	if err != nil {
+		return lane, false, err
+	}
+	prev := lane.Status
+	lane.Status = base
+	applyComms(&lane, comms) // same scalar fold + pause precedence as runSupervisor
+	return lane, lane.Status != prev, nil
+}
+
 // newLaneID mints a stable, filesystem-safe lane id: a slug of the ticket (when
 // given) plus a short random suffix, so it can name the log/spec files and be
 // reported before the fork races. Random bytes come from crypto/rand.

@@ -28,6 +28,25 @@ func TerminalStatus(mode string, exitCode int, writebackDir string) (state.Statu
 	if exitCode != 0 {
 		return state.StatusFailed, nil
 	}
+	return ArtifactStatus(mode, writebackDir)
+}
+
+// ArtifactStatus is the FILE-PRESENCE half of the completion contract: the
+// terminal status the writeback artifacts imply, independent of any exit code.
+// It is shared by TerminalStatus (the live path, which first folds in the exit
+// code above) and by the G4 reconciler (the SIGKILL path, where the supervisor's
+// exit code is gone and files are the only evidence) so a live verdict and a
+// reconciled verdict can never disagree.
+//
+//   - plan mode → plan-review IF PLAN.md is present, else failed: a clean run
+//     with no plan is a silent no-op, which is a failure, not a pass.
+//   - impl mode → review IF STATUS.md is present, else failed (same reasoning:
+//     success is defined by the writeback artifact, never by exit alone).
+//
+// It is conservative by construction: it never yields `done` or a `pass` verdict
+// — the absence of the expected artifact is a `failed`, so a reconciler built on
+// it cannot fabricate success for a lane whose agent died mid-run.
+func ArtifactStatus(mode string, writebackDir string) (state.Status, error) {
 	switch Mode(mode) {
 	case ModePlan:
 		if fileExists(filepath.Join(writebackDir, "PLAN.md")) {
