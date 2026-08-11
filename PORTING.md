@@ -63,8 +63,8 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 
 ## E. Planned RFC items (new — beyond current twig)
 
-- [~] **1. Per-worktree lock** — flock(2) primitive built + wired into `new`/`rm`. **Pending:** wire into `spawn`/`review`/`gate`; `bowt lock status|release`; `--force` (terminate holder); busy-holder identity in the message (`busy: pid … (review, 6m)`)
-- [ ] **2. Versioned spawn prompts** — `prompts/{plan,impl}.md` + `VERSION` (go:embed), `{{BRIEF}}` substitution, provenance line (`prompt: plan.md @ vN (hash)`), clause-survival test
+- [~] **1. Per-worktree lock** — flock(2) primitive built + wired into `new`/`rm`/`spawn` (held for the agent's lifetime as a child process). **Pending:** wire into `review`/`gate`; `bowt lock status|release`; `--force` (terminate holder); busy-holder identity in the message (`busy: pid … (review, 6m)`)
+- [x] **2. Versioned spawn prompts** — `bowt spawn [--impl]`: `internal/spawn/prompts/{plan,impl}.md` + `VERSION` (go:embed), `{{BRIEF}}` substitution, provenance line (`prompt: <mode>.md @ vN (hash)`) printed + prepended + copied into writebacks, clause-survival test. `runAgent` seam hardcodes `claude` pending item 4.
 - [ ] **3. `gate`** — compose lint+test (+ per-repo hook) → machine-readable `gate.json` (commit/worktree/scope), holds the lock
 - [ ] **4. Agent adapters** — provider descriptors, `session` + `oneshot` modes, capability checks, `doctor --agent`, `{{MEMORY_FILE}}` (depends on item 2), agent in provenance
 - [ ] **5. Native extension tier** — see D
