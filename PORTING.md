@@ -5,11 +5,15 @@ Tracks everything that must exist for bowt to fully replace the bash `twig`
 extension system) **plus** the five planned RFC items. Status keys:
 `[x]` done · `[~]` partial · `[ ]` pending · `[?]` reconsider/obsolete.
 
-> Snapshot: landed so far — worktree CRUD + `exec`/`cd`/`root`, SQLite registry,
-> per-worktree flock lock, config loading + `BOWT_*`/`GWT_*` env + lifecycle
-> hooks, and a cobra dispatch with generated shell completion (incl. dynamic
-> worktree-name completion). Next: `--code-only`, then `spawn` + versioned
-> prompts, then `gate`. The agent layer, extension system, and `review` are ahead.
+> Snapshot: **core complete + self-hosting.** Landed: worktree CRUD, SQLite
+> registry, flock lock, config/env/hooks, `--code-only`, cobra + dynamic
+> completion, `spawn` (versioned prompts + provenance), `gate`, agent adapters
+> (provider-neutral), `review` (with the validation postconditions), and the
+> per-repo extension loader. bowt manages its own worktrees; twig is out of the
+> loop. **Remaining is the tail:** `init`/`setup`/`sync`/`refresh`/`status`,
+> statusLine + docs-injection, `bowt new-extension`, and the polish follow-ups
+> noted inline (lock `status/release/--force`, `doctor` completeness, review
+> `--model`/target-worktrees/layer-routing, `.git/info/exclude`, `.claude` copy).
 
 ## A. Core commands (twig.sh dispatch)
 
@@ -67,7 +71,7 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 - [x] **2. Versioned spawn prompts** — `bowt spawn [--impl]`: `internal/spawn/prompts/{plan,impl}.md` + `VERSION` (go:embed), `{{BRIEF}}` substitution, provenance line (`prompt: <mode>.md @ vN (hash)`) printed + prepended + copied into writebacks, clause-survival test. `runAgent` seam hardcodes `claude` pending item 4.
 - [x] **3. `gate`** — `bowt gate [--scope]` runs the repo's `<configDir>/gate.sh` hook (per-check `BOWT_CHECK` lines) under the exclusive lock → atomic machine-readable `.bowt/gate.json` (overall/commit/worktree/dirty/checks); exit mirrors verdict. Django checks live in the repo's hook — core stays generic.
 - [x] **4. Agent adapters** — `internal/agent`: `Agent` iface with `Session`+`Oneshot` modes, `claude` (default) + `codex` stub, `--agent`→`BOWT_AGENT`/`GWT_AGENT`→default selection, capability checks (require-oneshot errors; unknown knob warns+drops), `{{MEMORY_FILE}}` in single-source prompts, provenance `agent: <name> · prompt: <mode>.md @ v2 (hash)`, `doctor --agent`. Wired into `spawn` (default-claude byte-identical). *Oneshot's consumer is `review` (later). Follow-ups: read `BOWT_AGENT` from `.bowt/config` too (currently env only); `doctor --agent` should exit non-zero on a failed check (currently 0).*
-- [ ] **5. Native extension tier** — see D
+- [~] **5. Native extension tier** — bowt's own commands are compiled (covering "native"); the per-repo shell-extension loader shipped (D). A discoverable bowt-shipped third tier + cross-source precedence deferred.
 
 ## F. review pipeline (the crown jewel — its own track)
 
