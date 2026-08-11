@@ -25,6 +25,7 @@ import (
 	"github.com/jfb1121/bowt/internal/repo"
 	"github.com/jfb1121/bowt/internal/run"
 	"github.com/jfb1121/bowt/internal/shell"
+	"github.com/jfb1121/bowt/internal/spawn"
 	"github.com/jfb1121/bowt/internal/state"
 	"github.com/jfb1121/bowt/internal/worktree"
 )
@@ -70,6 +71,7 @@ output instead of scraping tables.`,
 		newPathCmd(),
 		newRmCmd(),
 		newExecCmd(),
+		newSpawnCmd(),
 		newRootPathCmd(),
 		newCdCmd(),
 		newShellInitCmd(),
@@ -191,6 +193,38 @@ Use -- to separate bowt from a command that has its own flags:
 			return cmdExec(st, args)
 		},
 	}
+	return c
+}
+
+func newSpawnCmd() *cobra.Command {
+	var opts spawnOpts
+	c := &cobra.Command{
+		Use:   "spawn [brief]",
+		Short: "launch a headless coding agent against a brief",
+		Long: `Hand a fresh headless agent a written brief instead of doing the work in your
+own session. spawn loads a versioned wrapper prompt (plan by default, --impl for
+implementation), substitutes the brief, stamps a provenance line, then runs the
+agent as a child process while holding the per-worktree lock for its lifetime.
+
+Brief resolution (first match, unless a path is passed):
+  subagent/PROMPT.md  →  subagent/*-prompt.md  →  PROMPT.md
+subagent/FOLLOWUP.md is auto-appended when present.`,
+		Example: `  bowt spawn                       # plan pass over subagent/PROMPT.md
+  bowt spawn --impl                # implementation pass
+  bowt spawn brief.md --model opus # explicit brief + model
+  bowt spawn --print-prompt        # assemble + print, don't launch`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				opts.brief = args[0]
+			}
+			return cmdSpawn(opts)
+		},
+	}
+	c.Flags().BoolVar(&opts.impl, "impl", false, "implementation pass (default is a plan + writeback pass)")
+	c.Flags().StringVar(&opts.model, "model", "", "agent model (alias opus/sonnet/haiku, or a full ID)")
+	c.Flags().StringVar(&opts.effort, "effort", "", "agent reasoning effort (e.g. high)")
+	c.Flags().BoolVar(&opts.printPrompt, "print-prompt", false, "assemble and print the prompt + provenance, then exit (no agent, no lock)")
 	return c
 }
 
@@ -414,6 +448,105 @@ func cmdExec(st state.Store, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// spawnOpts carries the parsed flags for `bowt spawn`.
+type spawnOpts struct {
+	brief       string
+	impl        bool
+	model       string
+	effort      string
+	printPrompt bool
+}
+
+// runAgent is the seam the future agent-adapter slice slots into. For now it is
+// hardcoded to `claude --dangerously-skip-permissions`; model/effort are passed
+// as flags only when set. It is a package var so tests can substitute a fake,
+// though the primary test path is --print-prompt (which never reaches here).
+var runAgent = runClaude
+
+// runClaude launches claude as a CHILD process with inherited stdio. Running it
+// as a child (not syscall.Exec) is deliberate: Go opens the flock fd O_CLOEXEC,
+// so an exec-replace would drop the per-worktree lock. As a child, the lock is
+// held for the agent's whole lifetime and released cleanly when it returns.
+func runClaude(prompt, model, effort string) error {
+	args := []string{"--dangerously-skip-permissions"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if effort != "" {
+		args = append(args, "--effort", effort)
+	}
+	args = append(args, "--", prompt)
+
+	c := exec.Command("claude", args...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			os.Exit(ee.ExitCode())
+		}
+		return fmt.Errorf("run claude: %w", err)
+	}
+	return nil
+}
+
+func cmdSpawn(opts spawnOpts) error {
+	// Root the spawn at the current worktree (not the main repo): the brief,
+	// the lock, and the writeback all belong to the checkout you stand in.
+	top, err := repo.Toplevel("")
+	if err != nil {
+		return err
+	}
+
+	briefPath, brief, err := spawn.ResolveBrief(top, opts.brief)
+	if err != nil {
+		return err
+	}
+
+	mode := spawn.ModePlan
+	if opts.impl {
+		mode = spawn.ModeImpl
+	}
+	a, err := spawn.Assemble(mode, brief)
+	if err != nil {
+		return err
+	}
+
+	// Header + provenance are diagnostics (stderr): stdout is either the agent's
+	// inherited stream or, under --print-prompt, the assembled prompt itself.
+	output.Errf("spawn → %s", top)
+	fmt.Fprintf(os.Stderr, "  brief: %s   mode: %s\n", briefPath, mode.Label())
+	fmt.Fprintf(os.Stderr, "  %s\n", a.Provenance)
+
+	model := spawn.ResolveModel(opts.model, opts.impl)
+	effort := spawn.ResolveEffort(opts.effort, opts.impl)
+	fmt.Fprintf(os.Stderr, "  model: %s   effort: %s\n", orDefault(model), orDefault(effort))
+
+	if opts.printPrompt {
+		// The assembled prompt (provenance already prepended) is the data here.
+		fmt.Print(a.Prompt)
+		return nil
+	}
+
+	// spawn is a writer: take the EXCLUSIVE per-worktree lock and hold it for the
+	// agent's lifetime by running the agent as a child. defer releases on return.
+	l, err := lock.Acquire(top)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
+	return runAgent(a.Prompt, model, effort)
+}
+
+// orDefault labels an empty model/effort as the agent's session default for the
+// human-facing header.
+func orDefault(s string) string {
+	if s == "" {
+		return "session-default"
+	}
+	return s
 }
 
 func cmdRoot() error {

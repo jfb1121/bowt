@@ -46,6 +46,14 @@ func MainRepo() (string, error) {
 	return filepath.Dir(abs), nil
 }
 
+// Toplevel returns the absolute path of the current worktree's root (the
+// checkout you are standing in), working from anywhere inside it. Unlike
+// MainRepo this stays inside the worktree, so it uniquely identifies the
+// worktree bowt is operating on.
+func Toplevel(dir string) (string, error) {
+	return run(dir, "rev-parse", "--show-toplevel")
+}
+
 // Name returns the repo's basename — the key we register worktrees under.
 func Name() (string, error) {
 	main, err := MainRepo()

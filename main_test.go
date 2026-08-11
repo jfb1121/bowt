@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -143,6 +144,62 @@ func TestHelpRenders(t *testing.T) {
 			t.Errorf("new help missing %q", want)
 		}
 	}
+}
+
+// spawn --print-prompt assembles the prompt end-to-end (brief resolution +
+// {{BRIEF}} substitution + provenance) and prints it WITHOUT launching claude
+// or taking the lock. This is the seam the tests drive so no real agent runs.
+func TestSpawnPrintPrompt(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "subagent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "subagent", "PROMPT.md"), []byte("SENTINEL-BRIEF-TEXT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// --print-prompt writes the assembled prompt to os.Stdout (fmt.Print), which
+	// the cobra buffer does not capture; redirect the real stdout to a pipe.
+	out := captureStdout(t, func() {
+		if _, err := execRoot(t, "spawn", "--impl", "--print-prompt"); err != nil {
+			t.Fatalf("spawn --print-prompt: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "SENTINEL-BRIEF-TEXT") {
+		t.Errorf("assembled prompt missing brief body:\n%s", out)
+	}
+	if strings.Contains(out, "{{BRIEF}}") {
+		t.Errorf("placeholder not substituted:\n%s", out)
+	}
+	if !strings.HasPrefix(out, "prompt: impl.md @ ") {
+		t.Errorf("prompt should start with the provenance line; got:\n%s", out[:min(120, len(out))])
+	}
+}
+
+// captureStdout redirects os.Stdout across fn and returns what was written.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		done <- buf.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+	return <-done
 }
 
 // `bowt version` prints just the version string (the old behavior).
