@@ -126,3 +126,57 @@ func DefaultBase(mainRepo string) string {
 	}
 	return "main"
 }
+
+// RevParse resolves ref to its full commit SHA in dir.
+func RevParse(dir, ref string) (string, error) {
+	return run(dir, "rev-parse", ref)
+}
+
+// IsAncestor reports whether commit a is an ancestor of commit b in dir — i.e.
+// b can fast-forward from a. It maps `git merge-base --is-ancestor`'s exit
+// codes: 0 → true, 1 → false, anything else → a real error. This is the check
+// `land` uses to prove a branch fast-forwards onto its base before merging.
+func IsAncestor(dir, a, b string) (bool, error) {
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", a, b)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w", a, b, err)
+}
+
+// MergeFFOnly fast-forwards the branch checked out in dir up to ref, refusing
+// to create a merge commit (`git merge --ff-only`). It either advances cleanly
+// or fails leaving the working tree and ref untouched — never a partial merge.
+func MergeFFOnly(dir, ref string) error {
+	_, err := run(dir, "merge", "--ff-only", ref)
+	return err
+}
+
+// UpdateRef moves branch ref to newVal, asserting its current value is oldVal —
+// an atomic, guarded pointer move that does not touch any working tree. `land`
+// uses it to fast-forward a base branch that isn't the main repo's checkout.
+func UpdateRef(dir, ref, newVal, oldVal string) error {
+	_, err := run(dir, "update-ref", ref, newVal, oldVal)
+	return err
+}
+
+// Push pushes branch to remote from dir.
+func Push(dir, remote, branch string) error {
+	_, err := run(dir, "push", remote, branch)
+	return err
+}
+
+// DeleteBranch deletes a merged local branch (`git branch -d`, which refuses an
+// unmerged branch) in dir.
+func DeleteBranch(dir, branch string) error {
+	_, err := run(dir, "branch", "-d", branch)
+	return err
+}
