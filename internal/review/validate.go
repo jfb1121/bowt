@@ -123,6 +123,17 @@ func parseVerdict(body, slug string) (counts Counts, ok bool) {
 	return counts, ok
 }
 
+// SynthesisCounts extracts the deduped (blockers, majors, minors) triple from a
+// decision-queue body — the "VERDICT synthesis: blockers=N majors=N minors=N"
+// line SynthesisPrompt tells the agent to end with. ok is false when no
+// parseable synthesis verdict line exists (an absent, empty, or malformed
+// SYNTHESIS.md). It reuses the same tolerant parser the validator uses, so a
+// backticked / bold / heading-decorated verdict still counts — the one place a
+// lane's review C/S/N scalars are derived from the review writeback.
+func SynthesisCounts(body string) (Counts, bool) {
+	return parseVerdict(body, "synthesis")
+}
+
 // reVerdictLine matches a VERDICT line (after optional leading decoration) for
 // the byte-floor computation, which excludes it from the counted body.
 var reVerdictLine = regexp.MustCompile("^[`*_~#[:space:]]*VERDICT[[:space:]].*$")

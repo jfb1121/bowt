@@ -53,6 +53,32 @@ func TestParseVerdictTolerant(t *testing.T) {
 	}
 }
 
+// SynthesisCounts is the exported seam a lane's review C/S/N scalars derive
+// from. It reads the synthesis verdict line (any decoration), and reports ok
+// false for an absent / malformed queue.
+func TestSynthesisCounts(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want Counts
+		ok   bool
+	}{
+		{"present", "# queue\nVERDICT synthesis: blockers=2 majors=1 minors=4 (deduped from 9)", Counts{2, 1, 4}, true},
+		{"decorated", "### **VERDICT synthesis: blockers=0 majors=0 minors=1**", Counts{0, 0, 1}, true},
+		{"empty", "", Counts{}, false},
+		{"malformed", "VERDICT synthesis: blockers=1 majors=2", Counts{}, false},
+		{"wrong slug", "VERDICT s: blockers=1 majors=1 minors=1", Counts{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := SynthesisCounts(tt.body)
+			if ok != tt.ok || (ok && got != tt.want) {
+				t.Fatalf("SynthesisCounts = (%v,%v); want (%v,%v)", got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
 // The four fixture classes the brief names, asserted through ValidateReport.
 func TestValidateReport(t *testing.T) {
 	longBody := "## Swept\n" + strings.Repeat("checked files and hunt items, all clean. ", 20)
