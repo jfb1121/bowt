@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -10,21 +11,29 @@ import (
 // logic is tested without launching a real CLI.
 type fakeRunner struct {
 	sess    []fakeCall
+	head    []fakeCall
 	one     []fakeCall
 	oneOut  string
 	oneErr  error
 	sessErr error
+	headErr error
 }
 
 type fakeCall struct {
 	bin   string
 	args  []string
 	stdin string
+	opts  Opts // captured so tests assert opts.Stdout/Stderr are forwarded
 }
 
-func (f *fakeRunner) session(_ context.Context, bin string, args []string, _ Opts) error {
-	f.sess = append(f.sess, fakeCall{bin: bin, args: append([]string(nil), args...)})
+func (f *fakeRunner) session(_ context.Context, bin string, args []string, opts Opts) error {
+	f.sess = append(f.sess, fakeCall{bin: bin, args: append([]string(nil), args...), opts: opts})
 	return f.sessErr
+}
+
+func (f *fakeRunner) headless(_ context.Context, bin string, args []string, opts Opts) error {
+	f.head = append(f.head, fakeCall{bin: bin, args: append([]string(nil), args...), opts: opts})
+	return f.headErr
 }
 
 func (f *fakeRunner) oneshot(_ context.Context, bin string, args []string, stdin string) (string, error) {
@@ -89,6 +98,88 @@ func TestClaudeSessionArgsByteIdentical(t *testing.T) {
 				t.Errorf("warnings = %v; want %d", *warns, tt.warns)
 			}
 		})
+	}
+}
+
+// claude's Headless argv is the contract the supervisor relies on: -p +
+// mandatory --dangerously-skip-permissions, then the model/effort knobs, then
+// the prompt after `--`. It also proves opts.Stdout/Stderr are forwarded to the
+// runner unchanged (the supervisor points them at the lane log) and that stdin
+// is NEVER wired to a terminal.
+func TestClaudeHeadlessArgs(t *testing.T) {
+	var out, errw bytes.Buffer
+	tests := []struct {
+		name string
+		opts Opts
+		want []string
+	}{
+		{
+			name: "model and effort set",
+			opts: Opts{Model: "claude-opus-4-8", Effort: "high", Stdout: &out, Stderr: &errw},
+			want: []string{"-p", "--dangerously-skip-permissions", "--model", "claude-opus-4-8", "--effort", "high", "--", "P"},
+		},
+		{
+			name: "neither set",
+			opts: Opts{Stdout: &out, Stderr: &errw},
+			want: []string{"-p", "--dangerously-skip-permissions", "--", "P"},
+		},
+		{
+			name: "model only",
+			opts: Opts{Model: "claude-sonnet-5", Stdout: &out, Stderr: &errw},
+			want: []string{"-p", "--dangerously-skip-permissions", "--model", "claude-sonnet-5", "--", "P"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, fr, _ := newFake(t, "claude")
+			if err := a.Headless(context.Background(), "P", tt.opts); err != nil {
+				t.Fatalf("Headless: %v", err)
+			}
+			if len(fr.head) != 1 || len(fr.sess) != 0 {
+				t.Fatalf("headless routed wrong: head=%d sess=%d", len(fr.head), len(fr.sess))
+			}
+			got := fr.head[0]
+			if got.bin != "claude" {
+				t.Errorf("bin = %q; want claude", got.bin)
+			}
+			if strings.Join(got.args, "\x00") != strings.Join(tt.want, "\x00") {
+				t.Errorf("args = %v; want %v", got.args, tt.want)
+			}
+			// opts.Stdout/Stderr must be forwarded to the runner (log capture).
+			if got.opts.Stdout != &out || got.opts.Stderr != &errw {
+				t.Errorf("opts streams not forwarded to runner")
+			}
+			// stdin is never wired to the terminal for a headless run.
+			if got.opts.Stdin != nil {
+				t.Errorf("headless opts.Stdin = %v; want nil (no TTY)", got.opts.Stdin)
+			}
+		})
+	}
+}
+
+// codex refuses headless loudly whether via RequireHeadless (up-front) or the
+// method guard (a caller that skipped the check) — mirroring the Oneshot refusal.
+func TestHeadlessRefusesCodex(t *testing.T) {
+	claude, _, _ := newFake(t, "claude")
+	if err := RequireHeadless(claude); err != nil {
+		t.Errorf("claude should satisfy RequireHeadless; got %v", err)
+	}
+
+	codex, fr, _ := newFake(t, "codex")
+	err := RequireHeadless(codex)
+	if err == nil {
+		t.Fatal("codex should fail RequireHeadless")
+	}
+	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "headless") {
+		t.Errorf("error should name the agent and the missing capability; got %q", err)
+	}
+
+	// The method itself also guards, and never reaches the runner.
+	if err := codex.Headless(context.Background(), "P", Opts{}); err == nil {
+		t.Fatal("codex.Headless should be a hard error")
+	}
+	if len(fr.head) != 0 {
+		t.Errorf("codex.Headless must not reach the runner; got %d calls", len(fr.head))
 	}
 }
 
@@ -209,12 +300,12 @@ func TestSelect(t *testing.T) {
 func TestCapabilities(t *testing.T) {
 	claude, _, _ := newFake(t, "claude")
 	c := claude.Caps()
-	if c.MemoryFile != "CLAUDE.md" || c.ConfigDir != ".claude" || !c.SupportsOneshot || !c.SupportsHooks {
+	if c.MemoryFile != "CLAUDE.md" || c.ConfigDir != ".claude" || !c.SupportsOneshot || !c.SupportsHooks || !c.SupportsHeadless {
 		t.Errorf("claude caps unexpected: %+v", c)
 	}
 	codex, _, _ := newFake(t, "codex")
 	x := codex.Caps()
-	if x.MemoryFile != "AGENTS.md" || x.SupportsOneshot || x.SupportsHooks {
+	if x.MemoryFile != "AGENTS.md" || x.SupportsOneshot || x.SupportsHooks || x.SupportsHeadless {
 		t.Errorf("codex caps unexpected: %+v", x)
 	}
 }

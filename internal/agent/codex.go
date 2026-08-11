@@ -20,12 +20,13 @@ type codexAgent struct {
 
 func (codexAgent) Caps() Capabilities {
 	return Capabilities{
-		Name:            "codex",
-		Bin:             "codex",
-		ConfigDir:       ".codex",
-		MemoryFile:      "AGENTS.md",
-		SupportsOneshot: false,
-		SupportsHooks:   false,
+		Name:             "codex",
+		Bin:              "codex",
+		ConfigDir:        ".codex",
+		MemoryFile:       "AGENTS.md",
+		SupportsOneshot:  false,
+		SupportsHooks:    false,
+		SupportsHeadless: false, // codex exec is non-interactive but has no hook guardrail
 	}
 }
 
@@ -47,4 +48,13 @@ func (codexAgent) Oneshot(ctx context.Context, prompt string) (string, error) {
 	// Guarded here too, so a caller that skips RequireOneshot still fails
 	// loudly instead of running a broken pipeline.
 	return "", fmt.Errorf("agent %q does not support one-shot mode (stdin→stdout, no side effects)", "codex")
+}
+
+// Headless is refused for the same reason SupportsHeadless=false: `codex exec`
+// is non-interactive, but codex has no Edit/Write hook guardrail, so a headless
+// run (which implies --dangerously-skip-permissions) would have zero guardrails.
+// Guarded here too, mirroring Oneshot, so a caller that skips RequireHeadless
+// still fails loudly rather than launching an unprotected run.
+func (codexAgent) Headless(ctx context.Context, prompt string, opts Opts) error {
+	return fmt.Errorf("agent %q does not support headless mode (no Edit/Write hook guardrail for an unattended run)", "codex")
 }

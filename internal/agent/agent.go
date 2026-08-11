@@ -47,6 +47,12 @@ type Capabilities struct {
 	// SupportsHooks reports whether the provider has an Edit/Write guardrail
 	// system bowt can install into.
 	SupportsHooks bool
+	// SupportsHeadless reports whether the provider can run a full agentic pass
+	// non-interactively with no TTY (Headless). Because a headless run implies
+	// --dangerously-skip-permissions (nothing can answer a prompt), the only
+	// safety substitute is the Edit/Write hook guardrail — so a provider without
+	// SupportsHooks must NOT claim SupportsHeadless (see RequireHeadless).
+	SupportsHeadless bool
 }
 
 // Opts are the tunable knobs for a Session. Model/Effort are best-effort: a
@@ -68,11 +74,17 @@ type Agent interface {
 	// Caps returns the provider's static descriptor.
 	Caps() Capabilities
 	// Session runs the agent as a child with the prompt and inherited stdio,
-	// blocking until it exits. This is what spawn uses.
+	// blocking until it exits. This is what interactive spawn uses.
 	Session(ctx context.Context, prompt string, opts Opts) error
 	// Oneshot feeds prompt on stdin and returns captured stdout with no side
 	// effects. Providers with SupportsOneshot=false return a hard error.
 	Oneshot(ctx context.Context, prompt string) (string, error)
+	// Headless runs a full agentic pass with NO interactive stdin, streaming
+	// stdout/stderr through opts (the supervisor points them at the lane log).
+	// It blocks until the child exits — like Session, but non-interactive, so it
+	// implies --dangerously-skip-permissions. Providers with
+	// SupportsHeadless=false return a hard error.
+	Headless(ctx context.Context, prompt string, opts Opts) error
 }
 
 // New returns the named provider wired to real process execution. An unknown
@@ -118,6 +130,20 @@ func RequireOneshot(a Agent) error {
 	c := a.Caps()
 	if !c.SupportsOneshot {
 		return fmt.Errorf("agent %q does not support one-shot mode (stdin→stdout, no side effects), which this command requires", c.Name)
+	}
+	return nil
+}
+
+// RequireHeadless returns a hard error when a provider cannot run headless —
+// call it up front in `bowt spawn --headless`, so a lane refuses loudly rather
+// than launching an unattended, guardrail-free run. The gate is deliberately
+// the Edit/Write hook guardrail: a headless run implies skip-perms, so a
+// provider without hooks (SupportsHeadless=false) would run with zero
+// protection. Mirrors RequireOneshot.
+func RequireHeadless(a Agent) error {
+	c := a.Caps()
+	if !c.SupportsHeadless {
+		return fmt.Errorf("agent %q cannot run headless: an unattended run needs the Edit/Write hook guardrail (--dangerously-skip-permissions is mandatory with no TTY), which this provider lacks", c.Name)
 	}
 	return nil
 }
