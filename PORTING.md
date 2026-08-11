@@ -22,7 +22,7 @@ extension system) **plus** the five planned RFC items. Status keys:
 - [ ] `init [template]` — scaffold `.twig`/`.bowt`, docs, statusLine
 - [ ] `setup [branch]` — run pre-setup.sh + setup.sh
 - [ ] `sync` — stash → fetch → rebase main → setup → pop
-- [ ] `doctor [--agent X]` — validate deps / ports / registry / provider
+- [~] `doctor [--agent X]` — `--agent X` provider smoke-check landed (via adapters); **pending:** full deps/ports/registry checks, and exit non-zero when a check fails (currently exits 0)
 - [x] `help` — cobra per-command help/usage/flags + "did you mean" (dispatch migrated to cobra)
 - [ ] `status` (`show`/`add`/`rm`/`init`) — statusLine items (Claude-specific)
 - [ ] `refresh` — regenerate status + docs across all worktrees
@@ -66,7 +66,7 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 - [~] **1. Per-worktree lock** — flock(2) primitive built + wired into `new`/`rm`/`spawn`/`gate` (held for the whole run/agent lifetime as a child process). **Pending:** wire into `review`; `bowt lock status|release`; `--force` (terminate holder); busy-holder identity in the message (`busy: pid … (review, 6m)`)
 - [x] **2. Versioned spawn prompts** — `bowt spawn [--impl]`: `internal/spawn/prompts/{plan,impl}.md` + `VERSION` (go:embed), `{{BRIEF}}` substitution, provenance line (`prompt: <mode>.md @ vN (hash)`) printed + prepended + copied into writebacks, clause-survival test. `runAgent` seam hardcodes `claude` pending item 4.
 - [x] **3. `gate`** — `bowt gate [--scope]` runs the repo's `<configDir>/gate.sh` hook (per-check `BOWT_CHECK` lines) under the exclusive lock → atomic machine-readable `.bowt/gate.json` (overall/commit/worktree/dirty/checks); exit mirrors verdict. Django checks live in the repo's hook — core stays generic.
-- [ ] **4. Agent adapters** — provider descriptors, `session` + `oneshot` modes, capability checks, `doctor --agent`, `{{MEMORY_FILE}}` (depends on item 2), agent in provenance
+- [x] **4. Agent adapters** — `internal/agent`: `Agent` iface with `Session`+`Oneshot` modes, `claude` (default) + `codex` stub, `--agent`→`BOWT_AGENT`/`GWT_AGENT`→default selection, capability checks (require-oneshot errors; unknown knob warns+drops), `{{MEMORY_FILE}}` in single-source prompts, provenance `agent: <name> · prompt: <mode>.md @ v2 (hash)`, `doctor --agent`. Wired into `spawn` (default-claude byte-identical). *Oneshot's consumer is `review` (later). Follow-ups: read `BOWT_AGENT` from `.bowt/config` too (currently env only); `doctor --agent` should exit non-zero on a failed check (currently 0).*
 - [ ] **5. Native extension tier** — see D
 
 ## F. review pipeline (the crown jewel — its own track)
