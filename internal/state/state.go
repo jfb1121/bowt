@@ -80,19 +80,37 @@ type sqlStore struct{ db *sql.DB }
 
 // Open returns the default store at ~/.bowt/state.db, creating ~/.bowt if needed.
 func Open() (Store, error) {
-	home, err := os.UserHomeDir()
+	path, err := defaultPath()
 	if err != nil {
 		return nil, err
 	}
+	return OpenAt(path)
+}
+
+// defaultPath is ~/.bowt/state.db, creating ~/.bowt if needed. Shared by Open
+// and OpenLanes so both constructors resolve the same file.
+func defaultPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
 	dir := filepath.Join(home, ".bowt")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return "", err
 	}
-	return OpenAt(filepath.Join(dir, "state.db"))
+	return filepath.Join(dir, "state.db"), nil
 }
 
 // OpenAt opens a store at an explicit path — used by tests with a temp file.
 func OpenAt(path string) (Store, error) {
+	return open(path)
+}
+
+// open builds the concrete *sqlStore, running every migration. Both OpenAt
+// (worktree Store view) and OpenLanesAt (LaneStore view) go through here, so a
+// single handle exposes both tables regardless of which constructor a caller
+// used — the lanes table is created unconditionally beside the worktrees one.
+func open(path string) (*sqlStore, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -106,6 +124,12 @@ func OpenAt(path string) (Store, error) {
 	}
 	// Idempotent migration for registries created before the mode column.
 	if _, err := db.Exec(addModeColumn); err != nil && !isDuplicateColumn(err) {
+		_ = db.Close()
+		return nil, err
+	}
+	// The lane record (G2). CREATE TABLE IF NOT EXISTS is idempotent; later
+	// columns follow the same ALTER + isDuplicateColumn swallow as mode.
+	if _, err := db.Exec(laneSchema); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
