@@ -50,11 +50,11 @@ extension system) **plus** the five planned RFC items. Status keys:
 
 ## D. Extension system  *(port the MECHANISM, not the 18 scripts)*
 
-- [ ] per-repo extension loader — resolve + invoke `.twig/extensions/<cmd>.sh` as a subprocess
-- [ ] native extension tier — twig-shipped generic commands as **compiled subcommands** (RFC item 5)
-- [ ] resolution + precedence — **per-repo shadows native**; `help`/`doctor` show which source ran
-- [ ] extension manifest — header fields (`bowt-lock: none|shared|exclusive`, `bowt-scope: repo|native`, desc)
-- [ ] helper lib — `bowt lib` prints a sourceable `bowt.lib.sh` (`bowt_err`/`bowt_signal`/`bowt_gate_record`/`bowt_status_add`) that shells back to the binary
+- [x] per-repo extension loader — resolve + invoke `<configDir>/extensions/<cmd>.sh` as a subprocess (inherited stdio, propagated exit code); built-ins always win
+- [ ] native extension tier — twig-shipped generic commands as **compiled subcommands** (RFC item 5) — bowt's own commands already cover "native"; a discoverable third tier is deferred
+- [x] resolution + precedence — per-repo extension runs only when the word is not a built-in; `bowt extensions` lists the repo's extensions (native tier deferred, so no cross-source precedence yet)
+- [x] extension manifest — header fields (`bowt-lock: none|shared|exclusive` enforced around the run; `bowt-desc`); unknown keys (e.g. `bowt-scope`) ignored
+- [x] helper lib — `bowt lib` prints a sourceable `bowt.lib.sh` (`bowt_log`/`bowt_err`); `$BOWT_LIB` points the script at it (richer `bowt_signal`/`bowt_gate_record`/`bowt_status_add` callbacks deferred)
 - [ ] `bowt new-extension <name>` — scaffold a manifest+helper skeleton
 
 **Existing extensions migrate to the contract (NOT bowt's to reimplement):**

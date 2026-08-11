@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jfb1121/bowt/internal/agent"
+	"github.com/jfb1121/bowt/internal/config"
+	"github.com/jfb1121/bowt/internal/extension"
 	"github.com/jfb1121/bowt/internal/lock"
 	"github.com/jfb1121/bowt/internal/repo"
 	"github.com/jfb1121/bowt/internal/state"
@@ -354,6 +356,150 @@ func TestGateLockFailFast(t *testing.T) {
 		t.Fatal("gate should fail fast while the worktree lock is held")
 	} else if !strings.Contains(err.Error(), "busy") {
 		t.Errorf("error = %q; want a busy message", err.Error())
+	}
+}
+
+// writeExtension drops <cwd>/.bowt/extensions/<cmd>.sh in the fixture repo.
+func writeExtension(t *testing.T, cmd, body string) {
+	t.Helper()
+	dir := filepath.Join(".bowt", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, cmd+".sh"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A per-repo extension runs when its name isn't a built-in: it sees the
+// BOWT_*/GWT_* env + its args + cwd=worktree, and its exit code is propagated.
+func TestExtensionRunsEndToEnd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // keep state.Open / locks off the real ~/.bowt
+	fixtureRepo(t)
+	writeExtension(t, "greet", `#!/usr/bin/env bash
+# bowt-lock: none
+# bowt-desc: greet the world
+source "$BOWT_LIB"
+echo "main=$BOWT_MAIN_REPO args=$*"
+bowt_log "ran"
+exit 3
+`)
+
+	root := newRootCmd()
+	var code int
+	var handled bool
+	out := captureStdout(t, func() {
+		code, handled = tryExtension(root, []string{"greet", "x", "y"})
+	})
+
+	if !handled {
+		t.Fatal("greet should be handled as an extension")
+	}
+	if code != 3 {
+		t.Errorf("exit code = %d; want 3 (propagated)", code)
+	}
+	if !strings.Contains(out, "args=x y") {
+		t.Errorf("extension did not see its args; got:\n%s", out)
+	}
+	if !strings.Contains(out, "main=") {
+		t.Errorf("extension did not see BOWT_MAIN_REPO; got:\n%s", out)
+	}
+}
+
+// A built-in is never shadowed by a same-named extension: 'ls' resolves to the
+// built-in, so tryExtension declines to handle it.
+func TestExtensionNeverShadowsBuiltin(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fixtureRepo(t)
+	// This script would clobber `bowt ls` if extensions could shadow built-ins.
+	writeExtension(t, "ls", "#!/usr/bin/env bash\necho SHOULD-NOT-RUN\nexit 1\n")
+
+	root := newRootCmd()
+	if _, handled := tryExtension(root, []string{"ls"}); handled {
+		t.Fatal("built-in ls must win over an ls.sh extension")
+	}
+}
+
+// An unknown command with no matching extension is not handled here and becomes
+// cobra's normal, clean unknown-command error.
+func TestUnknownCommandCleanError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fixtureRepo(t)
+
+	root := newRootCmd()
+	if _, handled := tryExtension(root, []string{"nope"}); handled {
+		t.Fatal("an unknown command with no extension must not be handled")
+	}
+	if _, err := execRoot(t, "nope"); err == nil {
+		t.Fatal("cobra should error on an unknown command")
+	} else if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("error = %q; want a clean unknown-command error", err.Error())
+	}
+}
+
+// A `# bowt-lock: exclusive` extension fails fast when the per-worktree lock is
+// already held — bowt owns the locking, the author writes none.
+func TestExtensionExclusiveLockFailFast(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fixtureRepo(t)
+	writeExtension(t, "mutate", "#!/usr/bin/env bash\n# bowt-lock: exclusive\necho SHOULD-NOT-RUN\n")
+
+	main, err := repo.MainRepo()
+	if err != nil {
+		t.Fatalf("MainRepo: %v", err)
+	}
+	ext, found, err := extension.Find(config.Dir(main), "mutate")
+	if err != nil || !found {
+		t.Fatalf("resolve extension: found %v err %v", found, err)
+	}
+
+	// Pre-hold the worktree lock (keyed on the toplevel, as cmdExtension keys it).
+	top, err := repo.Toplevel("")
+	if err != nil {
+		t.Fatalf("Toplevel: %v", err)
+	}
+	held, err := lock.Acquire(top)
+	if err != nil {
+		t.Fatalf("pre-acquire: %v", err)
+	}
+	defer func() { _ = held.Release() }()
+
+	if _, err := cmdExtension(main, ext, nil); err == nil {
+		t.Fatal("exclusive extension should fail fast while the lock is held")
+	} else if !strings.Contains(err.Error(), "busy") {
+		t.Errorf("error = %q; want a busy message", err.Error())
+	}
+}
+
+// `bowt lib` prints the sourceable helper defining bowt_log / bowt_err.
+func TestLibCommand(t *testing.T) {
+	out := captureStdout(t, func() {
+		if _, err := execRoot(t, "lib"); err != nil {
+			t.Fatalf("lib: %v", err)
+		}
+	})
+	for _, want := range []string{"bowt_log()", "bowt_err()", "BOWT_LIB"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bowt lib missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// `bowt extensions` lists the repo's extensions with their descriptions.
+func TestExtensionsListing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fixtureRepo(t)
+	writeExtension(t, "greet", "# bowt-lock: exclusive\n# bowt-desc: greet the world\necho hi\n")
+
+	out := captureStdout(t, func() {
+		if _, err := execRoot(t, "extensions"); err != nil {
+			t.Fatalf("extensions: %v", err)
+		}
+	})
+	for _, want := range []string{"greet", "greet the world", "exclusive"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("extensions listing missing %q; got:\n%s", want, out)
+		}
 	}
 }
 

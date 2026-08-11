@@ -23,6 +23,20 @@ type Lock struct {
 // worktree path). If another process holds it, Acquire fails immediately rather
 // than waiting — the "fail fast and say it's busy" contract.
 func Acquire(key string) (*Lock, error) {
+	return acquire(key, syscall.LOCK_EX)
+}
+
+// AcquireShared takes a SHARED (read) lock keyed on key, also non-blocking.
+// Multiple shared holders coexist, but a shared acquire fails fast if an
+// exclusive holder has the key — so a read-only extension (`bowt-lock: shared`)
+// runs concurrently with other readers yet still yields to a writer.
+func AcquireShared(key string) (*Lock, error) {
+	return acquire(key, syscall.LOCK_SH)
+}
+
+// acquire opens the keyed lockfile and takes a non-blocking flock of mode
+// (LOCK_EX or LOCK_SH). It is the shared body of Acquire/AcquireShared.
+func acquire(key string, mode int) (*Lock, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -37,7 +51,7 @@ func Acquire(key string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := syscall.Flock(int(f.Fd()), mode|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("busy: %q is locked by another bowt process", key)
 	}
