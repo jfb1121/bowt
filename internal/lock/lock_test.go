@@ -35,6 +35,40 @@ func TestExclusiveAndReacquire(t *testing.T) {
 	_ = other.Release()
 }
 
+// Probe reports free before a lock is taken, held while it is held, and free
+// again after Release — the read-only signal the G4 reconciler keys off. It must
+// never leave the key locked (a probe that finds it free must drop it at once),
+// so a real Acquire after a "free" Probe still succeeds.
+func TestProbeFreeHeldFree(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// Free before anyone holds it.
+	if held, err := Probe("wt/probe"); err != nil || held {
+		t.Fatalf("Probe before acquire: held=%v err=%v; want held=false", held, err)
+	}
+	// A free Probe must not have retained the lock: Acquire still succeeds.
+	l, err := Acquire("wt/probe")
+	if err != nil {
+		t.Fatalf("Acquire after free Probe: %v", err)
+	}
+	// Held while the lock is held.
+	if held, err := Probe("wt/probe"); err != nil || !held {
+		t.Fatalf("Probe while held: held=%v err=%v; want held=true", held, err)
+	}
+	// A held Probe must not disturb the real holder: it still releases cleanly.
+	if err := l.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	// Free again after Release.
+	if held, err := Probe("wt/probe"); err != nil || held {
+		t.Fatalf("Probe after release: held=%v err=%v; want held=false", held, err)
+	}
+	// A distinct key is independent of the probed one.
+	if held, err := Probe("wt/other"); err != nil || held {
+		t.Fatalf("Probe of independent key: held=%v err=%v; want held=false", held, err)
+	}
+}
+
 // Shared locks coexist with each other but fail fast against an exclusive
 // holder — the semantics `bowt-lock: shared` relies on.
 func TestSharedCoexistsButYieldsToExclusive(t *testing.T) {
