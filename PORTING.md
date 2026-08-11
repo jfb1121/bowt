@@ -15,7 +15,7 @@ extension system) **plus** the five planned RFC items. Status keys:
 - [x] `ls [--json]` — list (JSON-first)
 - [x] `rm <branch>` — remove + deregister  *(teardown.sh hook still pending — see B)*
 - [x] `path <branch>` — print worktree path (bowt-native; agent-first)
-- [~] `exec <branch> -- <cmd>` — runs a command in the worktree dir (slice 3a); per-worktree env-var injection lands with the config slice
+- [x] `exec <branch> -- <cmd>` — runs a command in the worktree dir with the per-worktree env (BOWT_*/GWT_* + config vars) injected (slice 3a + config slice)
 - [x] `cd`/`main`/`root` + `shell-init [bash|zsh]` shim — interactive navigation (slice 3a)
 - [ ] `init [template]` — scaffold `.twig`/`.bowt`, docs, statusLine
 - [ ] `setup [branch]` — run pre-setup.sh + setup.sh
@@ -31,11 +31,11 @@ extension system) **plus** the five planned RFC items. Status keys:
 
 - [x] registry store — **SQLite** behind the `Store` interface (slice 2; was JSON in slice 1, swap touched no caller)
 - [x] offset allocation (monotonic-ish, `max+1`)
-- [~] port allocation — computes `base+offset`; **missing** the `lsof` in-use probe and `GWT_PORT_STRIDE`
-- [ ] `.twig/config` loading — source a bash config → export vars (the bash-source problem: shell-out `env` diff, or move to TOML)
-- [ ] env export contract — `GWT_PORT/OFFSET/BRANCH/MAIN_REPO/CODE_ONLY`, `TWIG_REPO_NAME`, `AUTOENV_ASSUME_YES` → rename to `BOWT_*` with back-compat aliases
-- [ ] `--code-only` mode + registry `flags` column + `GWT_CODE_ONLY` export
-- [ ] lifecycle hooks — invoke `pre-setup.sh` / `setup.sh` / `teardown.sh` with the `$path $branch $offset $port` contract
+- [~] port allocation — computes `base+offset` with `base` now from config (`BOWT_PORT_BASE`/`GWT_PORT_BASE`); **still missing** the `lsof` in-use probe and `GWT_PORT_STRIDE`
+- [x] `.twig/config` loading — bash-source via the `run.Runner` seam, env-diffed against a clean baseline (`internal/config`); resolves `.bowt/` then `.twig/`
+- [x] env export contract — `BOWT_PORT/OFFSET/BRANCH/MAIN_REPO/REPO_NAME/CODE_ONLY` with `GWT_*` + `TWIG_REPO_NAME` + `AUTOENV_ASSUME_YES` back-compat aliases (`internal/env`), injected into hooks and `exec`
+- [ ] `--code-only` mode + registry `flags` column + `GWT_CODE_ONLY` export  *(BOWT_CODE_ONLY/GWT_CODE_ONLY exported as `0` for now; mode itself is a later slice)*
+- [x] lifecycle hooks — invoke `pre-setup.sh` / `setup.sh` / `teardown.sh` with the `$path $branch $offset $port` contract via the Runner (`internal/hook`); pre-setup fatal, setup/teardown warn
 - [ ] `.git/info/exclude` management (add `.twig/`|`.bowt/`)
 - [ ] copy agent config dir (`.claude/`) into each new worktree  *(ties to D + adapters)*
 

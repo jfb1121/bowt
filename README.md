@@ -65,6 +65,10 @@ internal/            compiler-private core — importable only within this modul
   repo/              git operations via os/exec
   lock/              exclusive per-worktree lock via flock(2)
   output/            JSON vs human render (agent-first)
+  run/               process-execution seam (Runner) — config + hooks + tests
+  config/            resolve .bowt/.twig + bash-source the config file
+  env/               BOWT_* env contract (+ GWT_* back-compat aliases)
+  hook/              pre-setup / setup / teardown lifecycle scripts
   worktree/          new · rm · path · list — ties state + repo together
 ```
 

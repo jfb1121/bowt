@@ -10,11 +10,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/jfb1121/bowt/internal/config"
+	"github.com/jfb1121/bowt/internal/env"
 	"github.com/jfb1121/bowt/internal/lock"
 	"github.com/jfb1121/bowt/internal/output"
 	"github.com/jfb1121/bowt/internal/repo"
+	"github.com/jfb1121/bowt/internal/run"
 	"github.com/jfb1121/bowt/internal/shell"
 	"github.com/jfb1121/bowt/internal/state"
 	"github.com/jfb1121/bowt/internal/worktree"
@@ -102,7 +106,10 @@ func cmdNew(st state.Store, args []string) error {
 	}
 	defer func() { _ = l.Release() }()
 
-	wt, err := worktree.New(st, branch, *base)
+	// Hooks stream their stderr live so a slow setup.sh shows progress;
+	// stdout stays reserved for bowt's JSON result.
+	r := run.Exec{Stderr: os.Stderr}
+	wt, err := worktree.New(st, r, branch, *base)
 	if err != nil {
 		return err
 	}
@@ -158,7 +165,8 @@ func cmdRm(st state.Store, args []string) error {
 	}
 	defer func() { _ = l.Release() }()
 
-	if err := worktree.Remove(st, branch); err != nil {
+	r := run.Exec{Stderr: os.Stderr}
+	if err := worktree.Remove(st, r, branch); err != nil {
 		return err
 	}
 	// A declared shape (even anonymous) beats an ad-hoc map for agent-facing JSON.
@@ -179,13 +187,39 @@ func cmdExec(st state.Store, args []string) error {
 		return fmt.Errorf("usage: bowt exec <branch> [--] <cmd> [args...]")
 	}
 
-	dir, err := worktree.Path(st, branch)
+	main, err := repo.MainRepo()
 	if err != nil {
 		return err
 	}
+	name := filepath.Base(main)
+	wt, ok, err := st.Get(name, branch)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no worktree registered for %q", branch)
+	}
+
+	// Inject the per-worktree env (BOWT_*/GWT_* + config vars) so the command
+	// sees the same environment as the hooks. A broken config is a warning, not
+	// a hard failure — exec stays usable.
+	vars, err := config.Load(run.Exec{Stderr: os.Stderr}, config.Dir(main))
+	if err != nil {
+		output.Errf("load config: %v — running without config env", err)
+		vars = nil
+	}
+	envKV := env.Build(env.Info{
+		Path:     wt.Path,
+		Branch:   branch,
+		Offset:   wt.Offset,
+		Port:     wt.Port,
+		MainRepo: main,
+		RepoName: name,
+	}, vars)
 
 	c := exec.Command(rest[0], rest[1:]...)
-	c.Dir = dir
+	c.Dir = wt.Path
+	c.Env = append(os.Environ(), envKV...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Run(); err != nil {
 		// Propagate the child's exit code rather than masking it as our own.
