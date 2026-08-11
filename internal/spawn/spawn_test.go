@@ -208,7 +208,7 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 
 	// impl mode: the gate + the never-background rule + writeback + placeholders.
 	for _, want := range []string{
-		"make check",
+		"bowt gate",
 		"foreground",
 		"never background",
 		"subagent/writeback",

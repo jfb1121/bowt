@@ -10,7 +10,7 @@ Rules:
 
 (3) SCAFFOLD WITH THE PROJECT'S OWN TOOLS. Create any new app, module, or package using the project's own scaffolding command, never by hand.
 
-(4) THE GATE. Run `make check` in the FOREGROUND to completion before committing, and never background it. `make check` is the full gate (fmt-check + vet + lint + tests under -race); get it green before you commit. NEVER background a long command (tests, lint, `make check`) and end your turn while it is still running: this is a one-shot headless session, and when your turn ends the session terminates and everything unfinished — the commit, the PR, and your STATUS.md writeback — is lost. Long foreground waits are fine; an ended turn is not.
+(4) THE GATE. Run the repo's gate — `bowt gate` — in the FOREGROUND to completion before committing, and never background it. `bowt gate` runs this repo's own gate hook (whatever it defines: build, fmt, vet, lint, tests, migrations …) and returns a single pass/fail verdict; get it green before you commit. NEVER background a long command (tests, lint, `bowt gate`) and end your turn while it is still running: this is a one-shot headless session, and when your turn ends the session terminates and everything unfinished — the commit, the PR, and your STATUS.md writeback — is lost. Long foreground waits are fine; an ended turn is not.
 
 (5) SHIP IT. Commit, open the PR, and run code review, fixing the findings it raises.
 
