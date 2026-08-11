@@ -232,6 +232,96 @@ func TestSupervisorNonZeroExitFails(t *testing.T) {
 	}
 }
 
+// TestSupervisorReusesExistingRow proves the followup→supervisor handoff: when a
+// row for the spec id ALREADY exists (the followup command updated it, bumping
+// attempt), the supervisor's publish must reuse it (no PK-conflicting re-INSERT)
+// and preserve the bumped attempt through to the terminal update.
+func TestSupervisorReusesExistingRow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	wt := t.TempDir()
+	ls, err := state.OpenLanesAt(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wb := filepath.Join(wt, spawn.DefaultWritebackDir)
+	if err := os.MkdirAll(wb, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wb, "STATUS.md"), []byte("done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := sampleSpec(wt)
+	// Pre-seed the row as a followup would have: attempt bumped, status running.
+	pre := laneFromSpec(spec)
+	pre.Attempt = 2
+	if err := ls.AddLane(pre); err != nil {
+		t.Fatal(err)
+	}
+
+	ag := fakeAgent{caps: agent.Capabilities{Name: "claude", SupportsHeadless: true}}
+	if err := runSupervisor(ls, ag, spec, lock.Acquire, os.Stderr, os.Stderr); err != nil {
+		t.Fatalf("runSupervisor must reuse the existing row, not re-INSERT: %v", err)
+	}
+	got, ok, _ := ls.GetLane(spec.ID)
+	if !ok {
+		t.Fatal("row vanished")
+	}
+	if got.Attempt != 2 {
+		t.Errorf("Attempt = %d; want 2 preserved (supervisor must not reset a followup's bump)", got.Attempt)
+	}
+	if got.Status != state.StatusReview {
+		t.Errorf("Status = %q; want review", got.Status)
+	}
+}
+
+// TestSupervisorEnrichesComms proves the terminal update surfaces writeback
+// comms as stored scalars in one pass: a "PAUSED ON" marker in STATUS.md
+// promotes the terminal status to paused and records the owner, and SYNTHESIS.md
+// counts land on the review scalars.
+func TestSupervisorEnrichesComms(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	wt := t.TempDir()
+	ls, err := state.OpenLanesAt(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wb := filepath.Join(wt, spawn.DefaultWritebackDir)
+	if err := os.MkdirAll(wb, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wb, "STATUS.md"), []byte("blocked\nPAUSED ON alice\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewDir := filepath.Join(wt, ".bowt-review")
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reviewDir, "SYNTHESIS.md"),
+		[]byte("VERDICT synthesis: blockers=1 majors=0 minors=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := sampleSpec(wt) // impl mode, STATUS.md present → terminal review, then paused
+	ag := fakeAgent{caps: agent.Capabilities{Name: "claude", SupportsHeadless: true}}
+	if err := runSupervisor(ls, ag, spec, lock.Acquire, os.Stderr, os.Stderr); err != nil {
+		t.Fatalf("runSupervisor: %v", err)
+	}
+	got, ok, _ := ls.GetLane(spec.ID)
+	if !ok {
+		t.Fatal("row vanished")
+	}
+	if got.Status != state.StatusPaused {
+		t.Errorf("Status = %q; want paused (PAUSED ON promotes a successful terminal status)", got.Status)
+	}
+	if got.PausedOn != "alice" {
+		t.Errorf("PausedOn = %q; want alice", got.PausedOn)
+	}
+	if got.ReviewBlockers != 1 || got.ReviewMajors != 0 || got.ReviewMinors != 2 {
+		t.Errorf("review counts = %d/%d/%d; want 1/0/2", got.ReviewBlockers, got.ReviewMajors, got.ReviewMinors)
+	}
+}
+
 // --- ONE integration test that actually forks the hidden `_lane-run` ---------
 
 // TestLaneRunForkHoldsLock forks a real `_lane-run` supervisor (the test binary

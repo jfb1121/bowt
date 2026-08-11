@@ -56,10 +56,22 @@ type LaneSpec struct {
 	Prompt string `json:"prompt"`
 }
 
-// LaneLogPath is where a lane's captured stdout/stderr land:
+// LaneLogPath is where a lane's first captured stdout/stderr land:
 // <worktree>/.bowt/lane-<id>.log. The orchestrator tails it with `tail -f`.
 func LaneLogPath(worktree, id string) string {
-	return filepath.Join(worktree, bowtDir, "lane-"+id+".log")
+	return LaneLogPathAttempt(worktree, id, 0)
+}
+
+// LaneLogPathAttempt is LaneLogPath for a specific attempt: attempt 0 keeps the
+// base name (so a first spawn's log path is unchanged), and each `lane followup`
+// re-spawn (attempt >= 1) gets its own <worktree>/.bowt/lane-<id>.<attempt>.log
+// so a re-run's output never overwrites or interleaves with the prior attempt's.
+func LaneLogPathAttempt(worktree, id string, attempt int) string {
+	name := "lane-" + id + ".log"
+	if attempt > 0 {
+		name = fmt.Sprintf("lane-%s.%d.log", id, attempt)
+	}
+	return filepath.Join(worktree, bowtDir, name)
 }
 
 // SpecPath is where a lane's handoff spec is written:
