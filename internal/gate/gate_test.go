@@ -220,3 +220,36 @@ func TestExitCodeThroughRunner(t *testing.T) {
 		t.Fatalf("exitCode(nil) = %d; want 0", got)
 	}
 }
+
+// TestReadResult round-trips a written verdict, treats a missing file as ok=false
+// (never gated), and errors on a corrupt one — the read side the G4 cockpit uses.
+func TestReadResult(t *testing.T) {
+	wt := t.TempDir()
+
+	// Missing gate.json is the common "never gated" case: ok=false, no error.
+	if _, ok, err := ReadResult(wt); err != nil || ok {
+		t.Fatalf("missing verdict: ok=%v err=%v; want ok=false nil", ok, err)
+	}
+
+	// A written verdict round-trips through writeResult → ReadResult.
+	want := &Result{SchemaVersion: SchemaVersion, Overall: Pass, Repo: "demo",
+		Branch: "slice/x", Worktree: wt, Commit: "abc123", CommitShort: "abc123"}
+	if err := writeResult(wt, want); err != nil {
+		t.Fatalf("writeResult: %v", err)
+	}
+	got, ok, err := ReadResult(wt)
+	if err != nil || !ok {
+		t.Fatalf("ReadResult: ok=%v err=%v", ok, err)
+	}
+	if got.Overall != Pass || got.Commit != "abc123" {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+
+	// A corrupt gate.json is a real error, not a silent miss.
+	if err := os.WriteFile(filepath.Join(wt, OutputDir, OutputFile), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadResult(wt); err == nil {
+		t.Fatal("corrupt verdict should error")
+	}
+}

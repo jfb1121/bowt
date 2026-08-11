@@ -238,6 +238,27 @@ func statusFor(ok bool) Status {
 // writeResult writes res to <worktree>/.bowt/gate.json atomically: marshal,
 // write a temp file in the same dir, fsync-free rename over the target. A
 // reader therefore never observes a half-written verdict.
+// ReadResult loads the verdict a prior gate run wrote to
+// <worktree>/.bowt/gate.json. It is the read side of writeResult, used by the G4
+// cockpit to surface a worktree's gate verdict even when no lane row cached it.
+// A missing file is the common case (never gated) and returns ok=false with no
+// error; only a present-but-unreadable/corrupt file is an error.
+func ReadResult(worktree string) (Result, bool, error) {
+	path := filepath.Join(worktree, OutputDir, OutputFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Result{}, false, nil
+		}
+		return Result{}, false, fmt.Errorf("read gate verdict %s: %w", path, err)
+	}
+	var res Result
+	if err := json.Unmarshal(data, &res); err != nil {
+		return Result{}, false, fmt.Errorf("decode gate verdict %s: %w", path, err)
+	}
+	return res, true, nil
+}
+
 func writeResult(worktree string, res *Result) error {
 	dir := filepath.Join(worktree, OutputDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

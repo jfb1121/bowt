@@ -93,6 +93,8 @@ output instead of scraping tables.`,
 		newExecCmd(),
 		newSpawnCmd(),
 		newLaneCmd(),
+		newLanesCmd(),
+		newStatusCmd(),
 		newLaneRunCmd(),
 		newGateCmd(),
 		newLandCmd(),
@@ -321,6 +323,84 @@ prior writeback files remain on disk as the agent's context for the new pass.`,
 	}
 	c.Flags().StringVarP(&msg, "message", "m", "", "inline follow-up message")
 	c.Flags().StringVarP(&file, "file", "f", "", "read the follow-up message from a file")
+	return c
+}
+
+// newLanesCmd registers `bowt lanes`: the read-only lane list, one row per lane
+// with its (reconciled) status + derived scalars.
+func newLanesCmd() *cobra.Command {
+	var asJSON bool
+	var repoName string
+	c := &cobra.Command{
+		Use:   "lanes [--repo <r>]",
+		Short: "list the tracked lanes and their reconciled status",
+		Long: `List every headless-spawn lane for the repo — id, status, agent/model,
+attempt, wave, gate verdict, review C/S/N, and the escalated/paused flags.
+
+Each lane is reconciled at read time: a lane stuck in a running status
+(planning/impl/review) whose worktree lock is free (its detached supervisor died
+before writing the terminal status) is repaired from its writeback files before
+it is shown, and the repair is persisted (self-heal). A human table is printed at
+a terminal; JSON is emitted otherwise (agent-first) or with --json.`,
+		Example: `  bowt lanes
+  bowt lanes --json
+  bowt lanes --repo other-repo`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ls, err := state.OpenLanes()
+			if err != nil {
+				return err
+			}
+			if repoName == "" {
+				repoName, err = repo.Name()
+				if err != nil {
+					return err
+				}
+			}
+			return cmdLanes(ls, repoName, lock.Probe, asJSON)
+		},
+	}
+	c.Flags().BoolVar(&asJSON, "json", false, "force JSON output")
+	c.Flags().StringVar(&repoName, "repo", "", "repo to list lanes for (default: current repo)")
+	return c
+}
+
+// newStatusCmd registers `bowt status`: the per-worktree cockpit joining the
+// registry × lanes × live lock × gate.json.
+func newStatusCmd() *cobra.Command {
+	var asJSON bool
+	c := &cobra.Command{
+		Use:   "status",
+		Short: "per-worktree cockpit: registry × lanes × lock × gate",
+		Long: `Show one row per registered worktree in the current repo — its HEAD commit,
+dirty flag, whether its lock is currently held (a live spawn/gate/land), the
+worktree's gate verdict (from .bowt/gate.json), and the lane(s) on it with each
+lane's reconciled status, gate verdict, review C/S/N, and escalated/paused flags.
+
+A worktree with no lane still appears (from the registry), just without lane
+data. Lanes are reconciled at read time exactly as 'bowt lanes' does. This is the
+one screen an orchestrator reads instead of grepping. JSON is emitted off a
+terminal (agent-first) or with --json; a human table at a terminal.`,
+		Example: `  bowt status
+  bowt status --json`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := state.Open()
+			if err != nil {
+				return err
+			}
+			ls, err := state.OpenLanes()
+			if err != nil {
+				return err
+			}
+			name, err := repo.Name()
+			if err != nil {
+				return err
+			}
+			return cmdStatus(st, ls, name, lock.Probe, realWorktreeFacts, asJSON)
+		},
+	}
+	c.Flags().BoolVar(&asJSON, "json", false, "force JSON output")
 	return c
 }
 
@@ -668,6 +748,287 @@ func cmdLs(st state.Store, asJSON bool) error {
 		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n", wt.Branch, wt.Port, wt.Offset, mode, wt.Path)
 	}
 	return w.Flush()
+}
+
+// laneView is the read-only cockpit projection of a lane row: a subset of
+// state.Lane's scalars an orchestrator reads, plus Reconciled — set when the
+// status was repaired from files at THIS read (a SIGKILL-orphaned row self-heal
+// has now corrected). A declared shape, per house style, not a map.
+type laneView struct {
+	ID             string       `json:"id"`
+	Ticket         string       `json:"ticket,omitempty"`
+	Status         state.Status `json:"status"`
+	Agent          string       `json:"agent,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Attempt        int          `json:"attempt"`
+	Wave           int          `json:"wave"`
+	GateVerdict    string       `json:"gate_verdict,omitempty"`
+	ReviewBlockers int          `json:"review_blockers"`
+	ReviewMajors   int          `json:"review_majors"`
+	ReviewMinors   int          `json:"review_minors"`
+	Escalated      bool         `json:"escalated"`
+	PausedOn       string       `json:"paused_on,omitempty"`
+	Branch         string       `json:"branch"`
+	Worktree       string       `json:"worktree"`
+	Reconciled     bool         `json:"reconciled,omitempty"`
+}
+
+func toLaneView(l state.Lane, reconciled bool) laneView {
+	return laneView{
+		ID: l.ID, Ticket: l.Ticket, Status: l.Status, Agent: l.Agent, Model: l.Model,
+		Attempt: l.Attempt, Wave: l.Wave, GateVerdict: l.GateVerdict,
+		ReviewBlockers: l.ReviewBlockers, ReviewMajors: l.ReviewMajors, ReviewMinors: l.ReviewMinors,
+		Escalated: l.Escalated, PausedOn: l.PausedOn, Branch: l.Branch, Worktree: l.Worktree,
+		Reconciled: reconciled,
+	}
+}
+
+// worktreeView is the per-worktree cockpit row: the registry facts joined with
+// the live lock state, the on-disk gate verdict, and the lane(s) on the worktree.
+type worktreeView struct {
+	Repo        string     `json:"repo"`
+	Branch      string     `json:"branch"`
+	Path        string     `json:"path"`
+	Commit      string     `json:"commit,omitempty"`
+	Dirty       bool       `json:"dirty"`
+	LockHeld    bool       `json:"lock_held"`
+	GateVerdict string     `json:"gate_verdict,omitempty"`
+	GateCommit  string     `json:"gate_commit,omitempty"`
+	Lanes       []laneView `json:"lanes"`
+}
+
+// reconcileForRead applies the G4 reconcile-on-read to one lane: it probes the
+// worktree lock (the live-supervisor signal) and, for a running-status lane whose
+// lock is FREE, reconstructs the terminal state from files (spawn.ParseComms +
+// the pure reconcile decision). It only READS; the caller persists a change
+// (self-heal). Returns the (possibly corrected) lane and whether it changed.
+func reconcileForRead(lane state.Lane, probe func(string) (bool, error)) (state.Lane, bool, error) {
+	held, err := probe(lane.Worktree)
+	if err != nil {
+		return lane, false, err
+	}
+	if held || !isRunning(lane.Status) {
+		return lane, false, nil // live lane or already terminal: no file read needed
+	}
+	comms, err := spawn.ParseComms(
+		filepath.Join(lane.Worktree, lane.WritebackDir),
+		filepath.Join(lane.Worktree, review.ReviewDirName),
+	)
+	if err != nil {
+		return lane, false, err
+	}
+	return reconcile(lane, held, comms)
+}
+
+// reconcileLaneViews reconciles each lane at read time, SELF-HEALS a corrected
+// row (RFC option b: a running-status lane whose lock is free is unambiguously
+// stale, so persist the reconstructed terminal status to RETIRE the SIGKILL edge
+// rather than re-derive it every read — the decision stays the pure reconcile()
+// above; only this reader writes), and projects the result. Shared by `lanes`
+// and `status` so both reconcile identically.
+func reconcileLaneViews(ls state.LaneStore, lanes []state.Lane, probe func(string) (bool, error)) ([]laneView, error) {
+	views := make([]laneView, 0, len(lanes))
+	for _, lane := range lanes {
+		fixed, changed, err := reconcileForRead(lane, probe)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			if err := ls.UpdateLane(fixed); err != nil {
+				return nil, err
+			}
+		}
+		views = append(views, toLaneView(fixed, changed))
+	}
+	return views, nil
+}
+
+// cmdLanes lists the repo's lanes as the read-only cockpit projection, each lane
+// reconciled (and self-healed) first. Agent-first: JSON off a TTY or with --json.
+func cmdLanes(ls state.LaneStore, repoName string, probe func(string) (bool, error), asJSON bool) error {
+	lanes, err := ls.ListLanes(repoName)
+	if err != nil {
+		return err
+	}
+	views, err := reconcileLaneViews(ls, lanes, probe)
+	if err != nil {
+		return err
+	}
+	if asJSON || !output.IsTTY() {
+		return output.Emit(views)
+	}
+	if len(views) == 0 {
+		fmt.Println("no lanes")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tMODEL\tATT\tWAVE\tGATE\tREVIEW\tFLAGS\tBRANCH")
+	for _, v := range views {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+			v.ID, v.Status, orDash(v.Agent), orDash(v.Model), v.Attempt, v.Wave,
+			orDash(v.GateVerdict), reviewCell(v), laneFlags(v), v.Branch)
+	}
+	return w.Flush()
+}
+
+// cmdStatus is the per-worktree cockpit: the registry joined with each worktree's
+// live lock, its on-disk gate verdict, and the reconciled lane(s) on it. facts
+// gathers the git/gate IO (injected so the join is testable without git); probe
+// reads the live lock. Agent-first: JSON off a TTY or with --json.
+func cmdStatus(st state.Store, ls state.LaneStore, repoName string, probe func(string) (bool, error), facts gatherFacts, asJSON bool) error {
+	wts, err := st.List(repoName)
+	if err != nil {
+		return err
+	}
+	lanes, err := ls.ListLanes(repoName)
+	if err != nil {
+		return err
+	}
+	laneViews, err := reconcileLaneViews(ls, lanes, probe)
+	if err != nil {
+		return err
+	}
+	// Join lanes to worktrees on branch (worktrees' PK is (repo,branch); both
+	// lists are already scoped to repoName).
+	byBranch := make(map[string][]laneView, len(laneViews))
+	for _, lv := range laneViews {
+		byBranch[lv.Branch] = append(byBranch[lv.Branch], lv)
+	}
+
+	views := make([]worktreeView, 0, len(wts))
+	for _, wt := range wts {
+		f, err := facts(wt)
+		if err != nil {
+			return err
+		}
+		held, err := probe(wt.Path)
+		if err != nil {
+			return err
+		}
+		on := byBranch[wt.Branch]
+		if on == nil {
+			on = []laneView{} // a no-lane worktree still appears, with [] lanes
+		}
+		views = append(views, worktreeView{
+			Repo: wt.Repo, Branch: wt.Branch, Path: wt.Path,
+			Commit: f.Commit, Dirty: f.Dirty, LockHeld: held,
+			GateVerdict: f.GateVerdict, GateCommit: f.GateCommit, Lanes: on,
+		})
+	}
+
+	if asJSON || !output.IsTTY() {
+		return output.Emit(views)
+	}
+	if len(views) == 0 {
+		fmt.Println("no worktrees")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "BRANCH\tCOMMIT\tDIRTY\tLOCK\tGATE\tLANES")
+	for _, v := range views {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			v.Branch, orDash(v.Commit), yesNo(v.Dirty), lockCell(v.LockHeld),
+			orDash(v.GateVerdict), laneSummary(v.Lanes))
+	}
+	return w.Flush()
+}
+
+// gatherFacts is the per-worktree IO the status cockpit needs beyond the
+// registry: HEAD, dirty, and the on-disk gate verdict. Injected so the join +
+// reconcile projection is tested without git or a real gate.json.
+type gatherFacts func(wt state.Worktree) (wtFacts, error)
+
+// wtFacts are the gathered facts for one worktree.
+type wtFacts struct {
+	Commit      string // abbreviated HEAD
+	Dirty       bool
+	GateVerdict string // .bowt/gate.json overall ("" when never gated)
+	GateCommit  string // the commit that verdict is for (abbreviated)
+}
+
+// realWorktreeFacts is the production gatherFacts: git HEAD/dirty (best-effort —
+// a worktree whose checkout is gone still lists, just without commit/dirty) plus
+// the on-disk gate verdict. A corrupt gate.json is surfaced; a missing one is the
+// normal "never gated" case.
+func realWorktreeFacts(wt state.Worktree) (wtFacts, error) {
+	var f wtFacts
+	if _, short, err := repo.Head(wt.Path); err == nil {
+		f.Commit = short
+	}
+	if dirty, err := repo.Dirty(wt.Path); err == nil {
+		f.Dirty = dirty
+	}
+	res, ok, err := gate.ReadResult(wt.Path)
+	if err != nil {
+		return f, err
+	}
+	if ok {
+		f.GateVerdict = string(res.Overall)
+		f.GateCommit = res.CommitShort
+	}
+	return f, nil
+}
+
+// orDash renders an empty scalar as "-" in a human table.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func lockCell(held bool) string {
+	if held {
+		return "held"
+	}
+	return "free"
+}
+
+// reviewCell renders the C/S/N triple, or "-" when all zero.
+func reviewCell(v laneView) string {
+	if v.ReviewBlockers == 0 && v.ReviewMajors == 0 && v.ReviewMinors == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d/%d", v.ReviewBlockers, v.ReviewMajors, v.ReviewMinors)
+}
+
+// laneFlags renders the comms/reconcile flags for a lane: E=escalated,
+// P(<owner>)=paused, R=reconciled at this read. "-" when none.
+func laneFlags(v laneView) string {
+	var flags []string
+	if v.Escalated {
+		flags = append(flags, "E")
+	}
+	if v.PausedOn != "" {
+		flags = append(flags, "P("+v.PausedOn+")")
+	}
+	if v.Reconciled {
+		flags = append(flags, "R")
+	}
+	if len(flags) == 0 {
+		return "-"
+	}
+	return strings.Join(flags, ",")
+}
+
+// laneSummary renders the lanes on a worktree as "id:status" tokens for the
+// status table's LANES cell.
+func laneSummary(lanes []laneView) string {
+	if len(lanes) == 0 {
+		return "-"
+	}
+	toks := make([]string, 0, len(lanes))
+	for _, l := range lanes {
+		toks = append(toks, l.ID+":"+string(l.Status))
+	}
+	return strings.Join(toks, " ")
 }
 
 func cmdPath(st state.Store, branch string) error {
