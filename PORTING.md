@@ -92,6 +92,41 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 
 > Review follow-ups: `--model` is recorded but not applied (needs an `Opts` arg on `agent.Oneshot`, which touches the agent iface + providers); confirm the default base (`origin/main` vs twig's `origin/staging`).
 
+## G. Orchestration layer (the cockpit — encodes the Notion orchestrator pattern)
+
+`spawn` / writeback / `status` / `land` are facets of one missing abstraction: the
+**`lane`** — a tracked unit of delegated work (mission-control's `agents/<id>.md` +
+`-writeback.md`, made first-class). This is what turns bowt from "a toolkit I
+operate by hand" into "a cockpit that runs the loop." Pattern refs:
+[orchestrator→sub-agent](https://app.notion.com/p/3828033ab5c98149bfdcd0fd4841c918),
+[scale case study](https://app.notion.com/p/3838033ab5c981fb82b7d111dc27874f),
+[autonomous protocol](https://app.notion.com/p/3988033ab5c9813d8d5be6b2b36e9f22).
+
+- [ ] **`lane` schema** (foundation — lock before G2): `{id, ticket, brief+hash,
+  prompt_version, agent+model, worktree, branch, status
+  (planning|plan-review|impl|review|paused|done|failed), wave/deps, writeback
+  paths, gate_verdict, review C/S/N, escalations, provenance}` in a `lanes` table
+  (or per-worktree `.bowt/lane.json`). Draft an `rfc/lanes.md` first.
+- [ ] **G1 `bowt land <branch>`** *(quick win, independent — start first)* — gate →
+  ff-merge → cleanup; refuse if ungated / dirty / non-FF. Encodes "never merge an
+  ungated lane" as a verb. Would have prevented the cftunnel half-merge.
+- [ ] **G2 `lane` object + headless `spawn`** *(keystone; gap #1)* — make `spawn`
+  run the agent **non-interactively**, background it, capture the writeback, and
+  record lane state + completion. Everything else hangs off this.
+- [ ] **G3 writeback/comms first-class** *(depends on G2)* — structured protocol on
+  the lane (status / escalate / result / followup), `bowt lane followup <id>`
+  (writes FOLLOWUP + bumps provenance + re-spawns), escalations surfaced not
+  grepped. Markdown artifacts stay human-readable; bowt indexes them. Plan gate
+  (STOP-AFTER-PLAN) + review gate (multi-angle, never auto-fix) live here.
+- [ ] **G4 `bowt status` / `bowt lanes`** *(depends on G2)* — cockpit `--json`:
+  per-worktree lock holder + last gate verdict + commit + dirty + each lane's
+  status. The thin-projection a UI later just renders (never a second DB).
+- [ ] **later: autonomous protocol** — standing orders in the checkpoint,
+  multi-angle review lenses, `LOCAL_VERIFY.md` deep functional pass, stop-and-wait
+  (owner-only: contract/scope/merge/prod/money), `PAUSED ON <owner>` marker.
+
+Spine: **schema → G2 → {G3, G4}**; G1 is independent and shippable now.
+
 ## Retired by the port (do NOT carry over)
 
 - [?] dual `twig.sh` + `twig.zsh` maintenance → one binary (this is a root cause; zsh copy already drifted, missing `update`/`claude`/`status`/`refresh`/`main`)
