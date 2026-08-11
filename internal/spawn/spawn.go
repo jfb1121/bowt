@@ -94,11 +94,18 @@ func gitBlobHash(b []byte) string {
 
 // Assembled is the result of building a spawn prompt: the full message handed
 // to the agent (provenance line prepended) plus the provenance line on its own
-// for the header echo.
+// for the header echo. Version and Hash are the wrapper's provenance scalars
+// broken out so a lane record can store them without re-parsing the line.
 type Assembled struct {
 	Prompt     string
 	Provenance string
+	Version    string // prompts/VERSION
+	Hash       string // gitBlobHash of the wrapper prompt (full, not the :7 echo)
 }
+
+// BlobHash exposes the git blob hash used for provenance so a caller can record
+// a brief's hash on the lane with the same algorithm the wrapper hash uses.
+func BlobHash(b []byte) string { return gitBlobHash(b) }
 
 // Assemble loads the mode's embedded prompt, computes the provenance line, and
 // substitutes {{BRIEF}} with brief and {{MEMORY_FILE}} with memoryFile (the
@@ -126,6 +133,8 @@ func assemble(fsys fs.FS, mode Mode, agentName, memoryFile, brief string) (Assem
 	return Assembled{
 		Prompt:     prov + "\n\n" + body,
 		Provenance: prov,
+		Version:    ver,
+		Hash:       full,
 	}, nil
 }
 

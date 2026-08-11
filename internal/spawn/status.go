@@ -1,0 +1,51 @@
+package spawn
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/jfb1121/bowt/internal/state"
+)
+
+// TerminalStatus maps a finished headless run to the lane's terminal status,
+// from files-as-truth: the child's exit code plus which writeback artifact the
+// agent actually produced in writebackDir. It is PURE (a filesystem stat is its
+// only input beyond the args) so the supervisor's completion logic is table-
+// tested without a process.
+//
+//   - Any non-zero exit → failed. A crashed/errored agent is never landable,
+//     regardless of what files it left behind.
+//   - exit 0, plan mode → plan-review IF PLAN.md is present (the plan agent's
+//     contract), else failed: a clean exit with no plan is a silent no-op, which
+//     is a failure, not a pass.
+//   - exit 0, impl mode → review IF STATUS.md is present, else failed (same
+//     reasoning: success is defined by the writeback artifact, not exit 0 alone).
+//
+// The ESCALATE/PAUSE scan over the artifact bodies is deferred to G3; this
+// function only decides the phase from exit + presence.
+func TerminalStatus(mode string, exitCode int, writebackDir string) (state.Status, error) {
+	if exitCode != 0 {
+		return state.StatusFailed, nil
+	}
+	switch Mode(mode) {
+	case ModePlan:
+		if fileExists(filepath.Join(writebackDir, "PLAN.md")) {
+			return state.StatusPlanReview, nil
+		}
+		return state.StatusFailed, nil
+	case ModeImpl:
+		if fileExists(filepath.Join(writebackDir, "STATUS.md")) {
+			return state.StatusReview, nil
+		}
+		return state.StatusFailed, nil
+	default:
+		return "", fmt.Errorf("terminal status: unknown mode %q (want %q or %q)", mode, ModePlan, ModeImpl)
+	}
+}
+
+// fileExists reports whether p is an existing regular file (not a directory).
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
