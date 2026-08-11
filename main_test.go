@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jfb1121/bowt/internal/lock"
 	"github.com/jfb1121/bowt/internal/repo"
 	"github.com/jfb1121/bowt/internal/state"
 )
@@ -200,6 +201,48 @@ func captureStdout(t *testing.T, fn func()) string {
 	_ = w.Close()
 	os.Stdout = orig
 	return <-done
+}
+
+// gate fails fast with the busy message when the per-worktree lock is already
+// held. We pre-acquire the lock on the worktree path (keyed as cmdGate keys
+// it), then run `bowt gate` and assert it errors before touching the hook. This
+// exercises only the busy path, which returns an error normally — the pass/fail
+// verdict path (which os.Exit's) is covered by the gate package tests.
+func TestGateLockFailFast(t *testing.T) {
+	// Redirect ~/.bowt/locks into a temp HOME so we don't touch the real one.
+	t.Setenv("HOME", t.TempDir())
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	// A gate.sh must exist so that, absent the lock, gate would proceed — proving
+	// it's the lock (not a missing hook) that stops us.
+	cfg := filepath.Join(dir, ".bowt")
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "gate.sh"), []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The worktree toplevel is what cmdGate keys the lock on.
+	top, err := repo.Toplevel("")
+	if err != nil {
+		t.Fatalf("Toplevel: %v", err)
+	}
+	held, err := lock.Acquire(top)
+	if err != nil {
+		t.Fatalf("pre-acquire: %v", err)
+	}
+	defer func() { _ = held.Release() }()
+
+	if _, err := execRoot(t, "gate"); err == nil {
+		t.Fatal("gate should fail fast while the worktree lock is held")
+	} else if !strings.Contains(err.Error(), "busy") {
+		t.Errorf("error = %q; want a busy message", err.Error())
+	}
 }
 
 // `bowt version` prints just the version string (the old behavior).

@@ -69,6 +69,32 @@ func CurrentBranch(dir string) string {
 	return b
 }
 
+// Head returns HEAD's full and abbreviated commit SHA for the checkout at dir.
+// gate records both so a reader can compare .commit to HEAD (stale-verdict
+// detection) while still logging the human-friendly short form.
+func Head(dir string) (full, short string, err error) {
+	full, err = run(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	short, err = run(dir, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	return full, short, nil
+}
+
+// Dirty reports whether the checkout at dir has uncommitted changes (tracked or
+// untracked). gate records this so a verdict on a dirty tree is never mistaken
+// for one on a clean commit.
+func Dirty(dir string) (bool, error) {
+	out, err := run(dir, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
 // BranchExists reports whether a local branch ref exists.
 func BranchExists(mainRepo, branch string) bool {
 	_, err := run(mainRepo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
