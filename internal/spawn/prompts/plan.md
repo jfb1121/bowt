@@ -8,7 +8,7 @@ Steps:
 
 (1) READ. Read the brief and every plan, spec, or link it references.
 
-(2) VALIDATE. Check the scope against THIS codebase — find the real patterns and confirm or correct the brief's assumptions.
+(2) VALIDATE. Check the scope against THIS codebase — find the real patterns (and obey the repo's {{MEMORY_FILE}} and conventions) and confirm or correct the brief's assumptions.
 
 (3) MECHANISMS ARE NOT YOURS TO INVENT. For anything touching resume/retry, fan-out, locking, idempotency, state transitions, or cache/queue behaviour: first grep the primitive you build on for its OTHER consumers, read every one, and cite them at file:line. Then land on exactly ONE of three outcomes:
 

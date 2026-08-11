@@ -4,8 +4,9 @@
 // applies to every agent run — so it lives in versioned files under prompts/
 // (embedded into the binary) rather than as a string literal. spawn loads the
 // mode's prompt, stamps a provenance line the agent is told to copy into its
-// writeback, and substitutes the one placeholder, {{BRIEF}}, with the resolved
-// brief. See rfc/versioned-spawn-prompts.md.
+// writeback, and substitutes two placeholders — {{BRIEF}} with the resolved
+// brief and {{MEMORY_FILE}} with the selected provider's project-memory
+// filename. See rfc/versioned-spawn-prompts.md and rfc/agent-adapters.md.
 package spawn
 
 import (
@@ -27,9 +28,14 @@ import (
 //go:embed prompts/plan.md prompts/impl.md prompts/VERSION
 var embedded embed.FS
 
-// briefPlaceholder is the single substitution token. Keep it dumb — one
-// placeholder, plain string replace, no templating engine (see the RFC).
-const briefPlaceholder = "{{BRIEF}}"
+// The substitution tokens. Keep it dumb — plain string replace, no templating
+// engine (see the RFC). {{BRIEF}} is the resolved brief; {{MEMORY_FILE}} is the
+// selected provider's project-memory filename, so the one policy is parameterised
+// per provider rather than forked into a per-provider prompt copy.
+const (
+	briefPlaceholder  = "{{BRIEF}}"
+	memoryPlaceholder = "{{MEMORY_FILE}}"
+)
 
 // Mode selects which versioned wrapper to load.
 type Mode string
@@ -95,14 +101,16 @@ type Assembled struct {
 }
 
 // Assemble loads the mode's embedded prompt, computes the provenance line, and
-// substitutes {{BRIEF}} with brief. The provenance line is prepended to the
-// prompt (the wrapper text tells the agent to copy it into every writeback).
-// A missing or empty prompt is a hard error.
-func Assemble(mode Mode, brief string) (Assembled, error) {
-	return assemble(embedded, mode, brief)
+// substitutes {{BRIEF}} with brief and {{MEMORY_FILE}} with memoryFile (the
+// selected provider's memory filename). agentName is stamped into the
+// provenance line so a reader knows which CLI produced a writeback. The
+// provenance line is prepended to the prompt (the wrapper text tells the agent
+// to copy it into every writeback). A missing or empty prompt is a hard error.
+func Assemble(mode Mode, agentName, memoryFile, brief string) (Assembled, error) {
+	return assemble(embedded, mode, agentName, memoryFile, brief)
 }
 
-func assemble(fsys fs.FS, mode Mode, brief string) (Assembled, error) {
+func assemble(fsys fs.FS, mode Mode, agentName, memoryFile, brief string) (Assembled, error) {
 	raw, err := loadPrompt(fsys, "prompts/"+mode.File())
 	if err != nil {
 		return Assembled{}, err
@@ -112,8 +120,9 @@ func assemble(fsys fs.FS, mode Mode, brief string) (Assembled, error) {
 		return Assembled{}, err
 	}
 	full := gitBlobHash(raw)
-	prov := fmt.Sprintf("prompt: %s @ %s (%s)", mode.File(), ver, full[:7])
+	prov := fmt.Sprintf("agent: %s · prompt: %s @ %s (%s)", agentName, mode.File(), ver, full[:7])
 	body := strings.ReplaceAll(string(raw), briefPlaceholder, brief)
+	body = strings.ReplaceAll(body, memoryPlaceholder, memoryFile)
 	return Assembled{
 		Prompt:     prov + "\n\n" + body,
 		Provenance: prov,

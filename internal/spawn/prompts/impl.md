@@ -6,7 +6,7 @@ Rules:
 
 (1) VALIDATE FIRST. Check the brief against the ACTUAL codebase before writing any code. Find the real patterns and confirm or correct the brief's assumptions — follow the code where it differs, and say so in your writeback.
 
-(2) OBEY THE REPO. Follow this repo's CONTRIBUTING.md and CLAUDE.md and its conventions (logging, imports, error handling, enums, commit and PR hygiene, and how tests and management commands are run).
+(2) OBEY THE REPO. Follow this repo's CONTRIBUTING.md and {{MEMORY_FILE}} and its conventions (logging, imports, error handling, enums, commit and PR hygiene, and how tests and management commands are run).
 
 (3) SCAFFOLD WITH THE PROJECT'S OWN TOOLS. Create any new app, module, or package using the project's own scaffolding command, never by hand.
 

@@ -102,36 +102,58 @@ func TestResolveBriefAppendsFollowup(t *testing.T) {
 	}
 }
 
-// {{BRIEF}} is substituted (dumbly) and the provenance line is prepended.
+// {{BRIEF}} and {{MEMORY_FILE}} are substituted (dumbly) and the provenance
+// line is prepended.
 func TestAssembleSubstitutesAndPrepends(t *testing.T) {
-	a, err := Assemble(ModeImpl, "MY-UNIQUE-BRIEF-BODY")
+	a, err := Assemble(ModeImpl, "claude", "CLAUDE.md", "MY-UNIQUE-BRIEF-BODY")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	if strings.Contains(a.Prompt, briefPlaceholder) {
 		t.Fatal("{{BRIEF}} placeholder was not substituted")
 	}
+	if strings.Contains(a.Prompt, memoryPlaceholder) {
+		t.Fatal("{{MEMORY_FILE}} placeholder was not substituted")
+	}
 	if !strings.Contains(a.Prompt, "MY-UNIQUE-BRIEF-BODY") {
 		t.Fatal("brief body not substituted into the prompt")
+	}
+	if !strings.Contains(a.Prompt, "CLAUDE.md") {
+		t.Fatal("memory file not substituted into the prompt")
 	}
 	if !strings.HasPrefix(a.Prompt, a.Provenance) {
 		t.Fatalf("provenance not prepended; prompt starts:\n%q", a.Prompt[:80])
 	}
 }
 
-// The provenance line matches `prompt: <mode>.md @ <ver> (<hash>)`.
+// A provider's memory file is what {{MEMORY_FILE}} resolves to — a codex lane
+// sees AGENTS.md, not CLAUDE.md, from the one shared prompt.
+func TestAssembleMemoryFilePerProvider(t *testing.T) {
+	a, err := Assemble(ModeImpl, "codex", "AGENTS.md", "b")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if !strings.Contains(a.Prompt, "AGENTS.md") {
+		t.Fatal("codex lane should see AGENTS.md")
+	}
+	if strings.Contains(a.Prompt, "CLAUDE.md") {
+		t.Fatal("codex lane must not carry CLAUDE.md")
+	}
+}
+
+// The provenance line matches `agent: <name> · prompt: <mode>.md @ <ver> (<hash>)`.
 func TestProvenanceFormat(t *testing.T) {
-	re := regexp.MustCompile(`^prompt: (plan|impl)\.md @ \S+ \([0-9a-f]{7}\)$`)
+	re := regexp.MustCompile(`^agent: \S+ · prompt: (plan|impl)\.md @ \S+ \([0-9a-f]{7}\)$`)
 	for _, mode := range []Mode{ModePlan, ModeImpl} {
-		a, err := Assemble(mode, "x")
+		a, err := Assemble(mode, "claude", "CLAUDE.md", "x")
 		if err != nil {
 			t.Fatalf("Assemble(%s): %v", mode, err)
 		}
 		if !re.MatchString(a.Provenance) {
 			t.Fatalf("provenance %q does not match %s", a.Provenance, re)
 		}
-		if !strings.HasPrefix(a.Provenance, "prompt: "+mode.File()+" @ ") {
-			t.Fatalf("provenance %q missing mode %s", a.Provenance, mode.File())
+		if !strings.HasPrefix(a.Provenance, "agent: claude · prompt: "+mode.File()+" @ ") {
+			t.Fatalf("provenance %q missing agent/mode %s", a.Provenance, mode.File())
 		}
 	}
 }
@@ -164,7 +186,7 @@ func TestLoadPromptHardErrors(t *testing.T) {
 		t.Fatal("want error for an empty prompt")
 	}
 	// assemble against an FS missing VERSION is also a hard error.
-	if _, err := assemble(fstest.MapFS{"prompts/impl.md": &fstest.MapFile{Data: []byte("x")}}, ModeImpl, "b"); err == nil {
+	if _, err := assemble(fstest.MapFS{"prompts/impl.md": &fstest.MapFile{Data: []byte("x")}}, ModeImpl, "claude", "CLAUDE.md", "b"); err == nil {
 		t.Fatal("want error when VERSION is absent")
 	}
 }
@@ -184,7 +206,7 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 	}
 	implS, planS := strings.ToLower(string(impl)), strings.ToLower(string(plan))
 
-	// impl mode: the gate + the never-background rule + writeback + placeholder.
+	// impl mode: the gate + the never-background rule + writeback + placeholders.
 	for _, want := range []string{
 		"make check",
 		"foreground",
@@ -193,13 +215,14 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 		"status.md",
 		"provenance",
 		"{{brief}}",
+		"{{memory_file}}",
 	} {
 		if !strings.Contains(implS, want) {
 			t.Errorf("impl.md missing load-bearing clause %q", want)
 		}
 	}
 
-	// plan mode: the three mechanism outcomes + writeback + placeholder.
+	// plan mode: the three mechanism outcomes + writeback + placeholders.
 	for _, want := range []string{
 		"direct fit",
 		"planned extension",
@@ -209,10 +232,21 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 		"plan.md",
 		"provenance",
 		"{{brief}}",
+		"{{memory_file}}",
 	} {
 		if !strings.Contains(planS, want) {
 			t.Errorf("plan.md missing load-bearing clause %q", want)
 		}
+	}
+
+	// The prompts must stay single-source and provider-neutral: no literal
+	// CLAUDE.md may survive — a provider's memory file arrives via
+	// {{MEMORY_FILE}}, never hardcoded.
+	if strings.Contains(implS, "claude.md") {
+		t.Error("impl.md names CLAUDE.md literally; use {{MEMORY_FILE}}")
+	}
+	if strings.Contains(planS, "claude.md") {
+		t.Error("plan.md names CLAUDE.md literally; use {{MEMORY_FILE}}")
 	}
 }
 
