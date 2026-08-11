@@ -63,7 +63,7 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 
 ## E. Planned RFC items (new — beyond current twig)
 
-- [~] **1. Per-worktree lock** — flock(2) primitive built + wired into `new`/`rm`/`spawn`/`gate` (held for the whole run/agent lifetime as a child process). **Pending:** wire into `review`; `bowt lock status|release`; `--force` (terminate holder); busy-holder identity in the message (`busy: pid … (review, 6m)`)
+- [~] **1. Per-worktree lock** — flock(2), wired into `new`/`rm`/`spawn`/`gate`/`review` (held for the whole run/agent lifetime as a child process). **Pending:** `bowt lock status|release`; `--force` (terminate holder); busy-holder identity in the message (`busy: pid … (review, 6m)`)
 - [x] **2. Versioned spawn prompts** — `bowt spawn [--impl]`: `internal/spawn/prompts/{plan,impl}.md` + `VERSION` (go:embed), `{{BRIEF}}` substitution, provenance line (`prompt: <mode>.md @ vN (hash)`) printed + prepended + copied into writebacks, clause-survival test. `runAgent` seam hardcodes `claude` pending item 4.
 - [x] **3. `gate`** — `bowt gate [--scope]` runs the repo's `<configDir>/gate.sh` hook (per-check `BOWT_CHECK` lines) under the exclusive lock → atomic machine-readable `.bowt/gate.json` (overall/commit/worktree/dirty/checks); exit mirrors verdict. Django checks live in the repo's hook — core stays generic.
 - [x] **4. Agent adapters** — `internal/agent`: `Agent` iface with `Session`+`Oneshot` modes, `claude` (default) + `codex` stub, `--agent`→`BOWT_AGENT`/`GWT_AGENT`→default selection, capability checks (require-oneshot errors; unknown knob warns+drops), `{{MEMORY_FILE}}` in single-source prompts, provenance `agent: <name> · prompt: <mode>.md @ v2 (hash)`, `doctor --agent`. Wired into `spawn` (default-claude byte-identical). *Oneshot's consumer is `review` (later). Follow-ups: read `BOWT_AGENT` from `.bowt/config` too (currently env only); `doctor --agent` should exit non-zero on a failed check (currently 0).*
@@ -71,12 +71,14 @@ bowt-app — `run test tsc`. Only **`review`** splits: its generic harness goes 
 
 ## F. review pipeline (the crown jewel — its own track)
 
-- [ ] diff scope + layer classification (route perspectives by changed paths)
-- [ ] perspective fan-out with `max_parallel` throttle — via the `oneshot` adapter (E4)
-- [ ] report validation postconditions — verdict/body count match, clean-report byte floor, markdown-decoration tolerance
-- [ ] synthesis → decision queue (`SYNTHESIS.md`, PENDING→AGREE/REJECT), archive prior queue
-- [ ] review-target worktree spawn/reuse/reset (code-only, pin to origin)
-- [ ] SUMMARY/SYNTHESIS output contract + runner postcondition (fail if 0 reviewed)
+- [~] diff scope + layer classification — in-place diff scope (`merge-base(base,HEAD)`→working tree, base `@{upstream}`→`origin/main`) + preflight facts done; **layer auto-routing deferred** (gen2-be-path-specific) — defaults to `--all`/`-p`
+- [x] perspective fan-out with `max_parallel` throttle — via `agent.Oneshot` (default 3, `BOWT_REVIEW_PARALLEL`), under the exclusive lock
+- [x] report validation postconditions — verdict/body count match, clean-report ≥300B floor, markdown-decoration tolerance (`internal/review/validate.go`, fully unit-tested via a fake Oneshot)
+- [x] synthesis → decision queue (`SYNTHESIS.md`, `decision: PENDING`), prior queue archived to `SYNTHESIS.<epoch>.md`, same postcondition re-applied
+- [ ] review-target worktree spawn/reuse/reset (code-only, pin to origin) — **deferred; in-place review only for now**
+- [x] SUMMARY/SYNTHESIS output contract + runner postcondition (non-zero exit if 0 usable — "nothing was reviewed")
+
+> Review follow-ups: `--model` is recorded but not applied (needs an `Opts` arg on `agent.Oneshot`, which touches the agent iface + providers); confirm the default base (`origin/main` vs twig's `origin/staging`).
 
 ## Retired by the port (do NOT carry over)
 
