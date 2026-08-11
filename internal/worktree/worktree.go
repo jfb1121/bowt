@@ -41,7 +41,7 @@ func dir(repoName, branch string) (string, error) {
 // STATUS.md): a failing setup.sh is a warning — the worktree is kept, not
 // rolled back — while a failing pre-setup.sh is fatal for `new` (returns an
 // error), though the worktree is still kept on disk for the fix-and-retry flow.
-func New(st state.Store, r run.Runner, branch, base string) (state.Worktree, error) {
+func New(st state.Store, r run.Runner, branch, base string, codeOnly bool) (state.Worktree, error) {
 	main, err := repo.MainRepo()
 	if err != nil {
 		return state.Worktree{}, err
@@ -78,12 +78,17 @@ func New(st state.Store, r run.Runner, branch, base string) (state.Worktree, err
 		return state.Worktree{}, err
 	}
 
+	mode := state.ModeFull
+	if codeOnly {
+		mode = state.ModeCodeOnly
+	}
 	wt := state.Worktree{
 		Repo:    name,
 		Branch:  branch,
 		Offset:  offset,
 		Port:    port,
 		Path:    path,
+		Mode:    mode,
 		Created: time.Now(),
 	}
 	if err := st.Add(wt); err != nil {
@@ -101,6 +106,7 @@ func New(st state.Store, r run.Runner, branch, base string) (state.Worktree, err
 			Port:     port,
 			MainRepo: main,
 			RepoName: name,
+			CodeOnly: wt.CodeOnly(),
 		}, vars)
 		hookArgs := hook.Args{Path: path, Branch: branch, Offset: offset, Port: port}
 
@@ -148,6 +154,7 @@ func Remove(st state.Store, r run.Runner, branch string) error {
 					Port:     wt.Port,
 					MainRepo: main,
 					RepoName: name,
+					CodeOnly: wt.CodeOnly(),
 				}, vars)
 				hookArgs := hook.Args{Path: wt.Path, Branch: branch, Offset: wt.Offset, Port: wt.Port}
 				if _, err := hook.Run(r, cfgDir, hook.Teardown, hookArgs, hookEnv); err != nil {

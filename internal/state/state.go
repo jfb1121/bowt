@@ -8,9 +8,23 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver, registered under the name "sqlite"
+)
+
+// Mode is a worktree's provisioning mode — an enum-like fixed value set, so it's
+// a typed string with const values (house style) rather than a bare string.
+type Mode string
+
+const (
+	// ModeFull is a normal worktree with the repo's full setup. It's the default
+	// and the value old (pre-Mode) registry rows read back as.
+	ModeFull Mode = "full"
+	// ModeCodeOnly is a lightweight worktree: hooks branch on BOWT_CODE_ONLY=1 to
+	// skip the heavy per-worktree provisioning.
+	ModeCodeOnly Mode = "code-only"
 )
 
 // Worktree is one registered worktree. The json tags still define the wire
@@ -21,8 +35,13 @@ type Worktree struct {
 	Offset  int       `json:"offset"`
 	Port    int       `json:"port"`
 	Path    string    `json:"path"`
+	Mode    Mode      `json:"mode"`
 	Created time.Time `json:"created"`
 }
+
+// CodeOnly reports whether this is a code-only worktree, so callers building the
+// env contract don't compare against the Mode const directly.
+func (w Worktree) CodeOnly() bool { return w.Mode == ModeCodeOnly }
 
 // Store is the persistence seam — identical to the JSON era.
 type Store interface {
@@ -44,9 +63,18 @@ CREATE TABLE IF NOT EXISTS worktrees (
 	offset_n INTEGER NOT NULL,
 	port     INTEGER NOT NULL,
 	path     TEXT    NOT NULL,
+	mode     TEXT    NOT NULL DEFAULT 'full',
 	created  TEXT    NOT NULL,
 	PRIMARY KEY (repo, branch)
 );`
+
+// addModeColumn brings a pre-Mode registry (created before the mode column
+// existed) up to date. CREATE TABLE IF NOT EXISTS won't touch an existing table,
+// so we ALTER it in. This is idempotent: on a DB that already has the column
+// (a fresh DB, or a second Open) SQLite returns a "duplicate column name" error,
+// which we swallow; any other error is real and surfaces. Old rows read back as
+// 'full' via the column DEFAULT.
+const addModeColumn = `ALTER TABLE worktrees ADD COLUMN mode TEXT NOT NULL DEFAULT 'full'`
 
 type sqlStore struct{ db *sql.DB }
 
@@ -76,12 +104,23 @@ func OpenAt(path string) (Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Idempotent migration for registries created before the mode column.
+	if _, err := db.Exec(addModeColumn); err != nil && !isDuplicateColumn(err) {
+		_ = db.Close()
+		return nil, err
+	}
 	return &sqlStore{db: db}, nil
+}
+
+// isDuplicateColumn reports whether err is SQLite's "duplicate column name"
+// from re-running the ADD COLUMN migration on a DB that already has it.
+func isDuplicateColumn(err error) bool {
+	return strings.Contains(err.Error(), "duplicate column name")
 }
 
 func (s *sqlStore) List(repo string) ([]Worktree, error) {
 	rows, err := s.db.Query(
-		`SELECT repo, branch, offset_n, port, path, created FROM worktrees WHERE repo=? ORDER BY offset_n`, repo)
+		`SELECT repo, branch, offset_n, port, path, mode, created FROM worktrees WHERE repo=? ORDER BY offset_n`, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +139,7 @@ func (s *sqlStore) List(repo string) ([]Worktree, error) {
 
 func (s *sqlStore) Get(repo, branch string) (Worktree, bool, error) {
 	row := s.db.QueryRow(
-		`SELECT repo, branch, offset_n, port, path, created FROM worktrees WHERE repo=? AND branch=?`, repo, branch)
+		`SELECT repo, branch, offset_n, port, path, mode, created FROM worktrees WHERE repo=? AND branch=?`, repo, branch)
 	wt, err := scanRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Worktree{}, false, nil
@@ -118,9 +157,13 @@ func (s *sqlStore) Add(wt Worktree) error {
 	} else if ok {
 		return ErrExists
 	}
+	mode := wt.Mode
+	if mode == "" {
+		mode = ModeFull // an unset mode persists as the default, never as ""
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO worktrees (repo, branch, offset_n, port, path, created) VALUES (?,?,?,?,?,?)`,
-		wt.Repo, wt.Branch, wt.Offset, wt.Port, wt.Path, wt.Created.Format(time.RFC3339Nano))
+		`INSERT INTO worktrees (repo, branch, offset_n, port, path, mode, created) VALUES (?,?,?,?,?,?,?)`,
+		wt.Repo, wt.Branch, wt.Offset, wt.Port, wt.Path, string(mode), wt.Created.Format(time.RFC3339Nano))
 	return err
 }
 
@@ -148,10 +191,14 @@ type scanner interface {
 
 func scanRow(sc scanner) (Worktree, error) {
 	var wt Worktree
-	var created string
-	if err := sc.Scan(&wt.Repo, &wt.Branch, &wt.Offset, &wt.Port, &wt.Path, &created); err != nil {
+	var created, mode string
+	if err := sc.Scan(&wt.Repo, &wt.Branch, &wt.Offset, &wt.Port, &wt.Path, &mode, &created); err != nil {
 		return Worktree{}, err
 	}
+	if mode == "" {
+		mode = string(ModeFull) // belt-and-suspenders for any legacy blank
+	}
+	wt.Mode = Mode(mode)
 	wt.Created, _ = time.Parse(time.RFC3339Nano, created)
 	return wt, nil
 }

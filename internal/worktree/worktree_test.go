@@ -52,7 +52,7 @@ func TestNewListPathRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, err := New(st, run.Exec{}, "feature/login", "")
+	wt, err := New(st, run.Exec{}, "feature/login", "", false)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -81,6 +81,36 @@ func TestNewListPathRemove(t *testing.T) {
 	}
 	if got, _ := List(st); len(got) != 0 {
 		t.Fatalf("List after remove = %d; want 0", len(got))
+	}
+}
+
+// New --code-only registers a code-only worktree that Get/List report as such,
+// while a default New (codeOnly=false) is full.
+func TestNewCodeOnlyMode(t *testing.T) {
+	_, _ = initConfigRepo(t) // chdir'd temp repo with an empty .twig (no hooks)
+
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	co, err := New(st, run.Exec{}, "feature/co", "", true)
+	if err != nil {
+		t.Fatalf("New code-only: %v", err)
+	}
+	if co.Mode != state.ModeCodeOnly || !co.CodeOnly() {
+		t.Fatalf("code-only New: Mode=%q CodeOnly=%v; want code-only/true", co.Mode, co.CodeOnly())
+	}
+	if got, ok, _ := st.Get(co.Repo, "feature/co"); !ok || got.Mode != state.ModeCodeOnly {
+		t.Fatalf("Get code-only: ok=%v Mode=%q; want ok/code-only", ok, got.Mode)
+	}
+
+	full, err := New(st, run.Exec{}, "feature/full", "", false)
+	if err != nil {
+		t.Fatalf("New default: %v", err)
+	}
+	if full.Mode != state.ModeFull || full.CodeOnly() {
+		t.Fatalf("default New: Mode=%q CodeOnly=%v; want full/false", full.Mode, full.CodeOnly())
 	}
 }
 
@@ -149,7 +179,7 @@ func TestNewConfigAndHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, err := New(st, run.Exec{}, "feature/x", "")
+	wt, err := New(st, run.Exec{}, "feature/x", "", false)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -191,7 +221,7 @@ func TestNewPreSetupFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, err := New(st, run.Exec{}, "feature/y", "")
+	wt, err := New(st, run.Exec{}, "feature/y", "", false)
 	if err == nil {
 		t.Fatal("New: want error from failing pre-setup.sh, got nil")
 	}
@@ -214,7 +244,7 @@ func TestNewSetupNonFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, err := New(st, run.Exec{}, "feature/z", "")
+	wt, err := New(st, run.Exec{}, "feature/z", "", false)
 	if err != nil {
 		t.Fatalf("New: setup.sh failure must be non-fatal, got %v", err)
 	}
@@ -235,7 +265,7 @@ func TestRemoveTeardown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, err := New(st, run.Exec{}, "feature/rm", "")
+	wt, err := New(st, run.Exec{}, "feature/rm", "", false)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

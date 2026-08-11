@@ -85,23 +85,31 @@ output instead of scraping tables.`,
 
 func newNewCmd() *cobra.Command {
 	var base string
+	var codeOnly bool
 	c := &cobra.Command{
 		Use:   "new <branch>",
 		Short: "create a worktree and register it",
 		Long: `Create a git worktree for <branch> (from base, defaulting to the main repo's
-current branch), register it, allocate a port/offset, and run the setup hooks.`,
+current branch), register it, allocate a port/offset, and run the setup hooks.
+
+--code-only registers a lightweight worktree: BOWT_CODE_ONLY=1 (and the
+GWT_CODE_ONLY alias) is exported to the hooks and to 'bowt exec', so a repo's
+setup.sh/teardown.sh can skip the heavy per-worktree provisioning. Without it a
+worktree is 'full'.`,
 		Example: `  bowt new feature/login
-  bowt new hotfix -b release/2.0`,
+  bowt new hotfix -b release/2.0
+  bowt new docs --code-only`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st, err := state.Open()
 			if err != nil {
 				return err
 			}
-			return cmdNew(st, args[0], base)
+			return cmdNew(st, args[0], base, codeOnly)
 		},
 	}
 	c.Flags().StringVarP(&base, "base", "b", "", "base branch (default: main repo's current branch)")
+	c.Flags().BoolVar(&codeOnly, "code-only", false, "lightweight worktree: export BOWT_CODE_ONLY=1 so hooks skip heavy provisioning")
 	return c
 }
 
@@ -363,7 +371,7 @@ load it manually for the current session:
 	return c
 }
 
-func cmdNew(st state.Store, branch, base string) error {
+func cmdNew(st state.Store, branch, base string, codeOnly bool) error {
 	// Writers take the per-worktree lock so two bowt processes can't race the
 	// same tree. defer releases it as soon as this command returns.
 	l, err := lock.Acquire(branch)
@@ -375,7 +383,7 @@ func cmdNew(st state.Store, branch, base string) error {
 	// Hooks stream their stderr live so a slow setup.sh shows progress;
 	// stdout stays reserved for bowt's JSON result.
 	r := run.Exec{Stderr: os.Stderr}
-	wt, err := worktree.New(st, r, branch, base)
+	wt, err := worktree.New(st, r, branch, base, codeOnly)
 	if err != nil {
 		return err
 	}
@@ -396,9 +404,13 @@ func cmdLs(st state.Store, asJSON bool) error {
 		return output.Emit(wts)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "BRANCH\tPORT\tOFFSET\tPATH")
+	fmt.Fprintln(w, "BRANCH\tPORT\tOFFSET\tMODE\tPATH")
 	for _, wt := range wts {
-		fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", wt.Branch, wt.Port, wt.Offset, wt.Path)
+		mode := wt.Mode
+		if mode == "" {
+			mode = state.ModeFull
+		}
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n", wt.Branch, wt.Port, wt.Offset, mode, wt.Path)
 	}
 	return w.Flush()
 }
@@ -469,6 +481,7 @@ func cmdExec(st state.Store, args []string) error {
 		Port:     wt.Port,
 		MainRepo: main,
 		RepoName: name,
+		CodeOnly: wt.CodeOnly(),
 	}, vars)
 
 	c := exec.Command(rest[0], rest[1:]...)
@@ -631,7 +644,7 @@ func cmdGate(st state.Store, scope string) error {
 	}
 	info := env.Info{Path: top, Branch: branch, MainRepo: main, RepoName: name}
 	if wt, ok, err := st.Get(name, branch); err == nil && ok {
-		info.Offset, info.Port = wt.Offset, wt.Port
+		info.Offset, info.Port, info.CodeOnly = wt.Offset, wt.Port, wt.CodeOnly()
 	}
 	envKV := env.Build(info, vars)
 
