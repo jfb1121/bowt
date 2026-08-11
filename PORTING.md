@@ -10,7 +10,15 @@ extension system) **plus** the five planned RFC items. Status keys:
 > completion, `spawn` (versioned prompts + provenance), `gate`, agent adapters
 > (provider-neutral), `review` (with the validation postconditions), and the
 > per-repo extension loader. bowt manages its own worktrees; twig is out of the
-> loop. **Remaining is the tail:** `init`/`setup`/`sync`/`refresh`/`status`,
+> loop.
+>
+> **Deployed (2026-08-11): gen2-be runs on bowt.** 117 worktrees migrated into
+> the bowt registry; `~/Graswald/gen2-be/.bowt` → `twig-configs/gen2-be/bowt/`
+> (13 extensions migrated to invokable scripts + `gate.sh` + Django perspectives);
+> `bowt manage --version` verified end-to-end; agents told to prefer bowt
+> (`~/.claude/CLAUDE.md` + SessionStart hook). cftunnel migration in flight.
+>
+> **Remaining is the tail:** `init`/`setup`/`sync`/`refresh`/`status`,
 > statusLine + docs-injection, `bowt new-extension`, and the polish follow-ups
 > noted inline (lock `status/release/--force`, `doctor` completeness, review
 > `--model`/target-worktrees/layer-routing, `.git/info/exclude`, `.claude` copy).
