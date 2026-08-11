@@ -1,0 +1,8 @@
+# compiled binary
+/bowt
+# test binaries / coverage
+*.test
+*.out
+coverage.*
+# local dev DBs (bowt writes ~/.bowt, not the repo — but just in case)
+*.db

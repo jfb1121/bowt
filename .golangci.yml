@@ -1,0 +1,25 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - misspell    # common spelling mistakes in comments/strings
+    - unconvert   # unnecessary type conversions
+    - bodyclose   # HTTP response bodies closed (for when adapters land)
+  settings:
+    errcheck:
+      # Writes to stdout/stderr can't be meaningfully handled; the tabwriter
+      # Flush error (which surfaces real write failures) is still checked.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
