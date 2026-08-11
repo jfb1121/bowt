@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jfb1121/bowt/internal/agent"
 	"github.com/jfb1121/bowt/internal/lock"
 	"github.com/jfb1121/bowt/internal/repo"
 	"github.com/jfb1121/bowt/internal/state"
@@ -177,9 +178,120 @@ func TestSpawnPrintPrompt(t *testing.T) {
 	if strings.Contains(out, "{{BRIEF}}") {
 		t.Errorf("placeholder not substituted:\n%s", out)
 	}
-	if !strings.HasPrefix(out, "prompt: impl.md @ ") {
+	if !strings.HasPrefix(out, "agent: claude · prompt: impl.md @ ") {
 		t.Errorf("prompt should start with the provenance line; got:\n%s", out[:min(120, len(out))])
 	}
+}
+
+// Selecting a provider substitutes ITS memory file into the shared prompt and
+// stamps ITS name into provenance — one policy, parameterised per provider.
+func TestSpawnPrintPromptCodexAgent(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "subagent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "subagent", "PROMPT.md"), []byte("BRIEF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if _, err := execRoot(t, "spawn", "--impl", "--agent", "codex", "--print-prompt"); err != nil {
+			t.Fatalf("spawn --agent codex --print-prompt: %v", err)
+		}
+	})
+
+	if !strings.HasPrefix(out, "agent: codex · prompt: impl.md @ ") {
+		t.Errorf("provenance should name codex; got:\n%s", out[:min(120, len(out))])
+	}
+	if !strings.Contains(out, "AGENTS.md") {
+		t.Errorf("codex lane should carry AGENTS.md; got:\n%s", out)
+	}
+	if strings.Contains(out, "CLAUDE.md") || strings.Contains(out, "{{MEMORY_FILE}}") {
+		t.Errorf("codex lane must not carry CLAUDE.md or an unsubstituted placeholder; got:\n%s", out)
+	}
+}
+
+// An unknown --agent is a hard error before any work.
+func TestSpawnUnknownAgent(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	_, err := execRoot(t, "spawn", "--agent", "bogus", "--print-prompt")
+	if err == nil {
+		t.Fatal("want error for an unknown agent")
+	}
+	if !strings.Contains(err.Error(), "unknown agent") {
+		t.Errorf("error should name the problem; got %q", err)
+	}
+}
+
+// doctorAgent's checks run behind injected lookPath/HOME and dry-run, so no CLI
+// is launched: codex skips one-shot (unsupported), claude skips it under
+// --dry-run, and a missing binary fails the bin check.
+func TestDoctorAgent(t *testing.T) {
+	found := func(string) (string, error) { return "/usr/local/bin/x", nil }
+	missing := func(string) (string, error) { return "", exec.ErrNotFound }
+	home := t.TempDir()
+
+	claude, err := agent.New("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex, err := agent.New("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// claude, bin present, dry-run: every check passes without launching claude.
+	rep := doctorAgent(claude, found, home, true)
+	if !rep.OK {
+		t.Errorf("claude dry-run doctor should pass: %+v", rep.Checks)
+	}
+	if got := checkDetail(rep, "oneshot"); !strings.Contains(got, "dry-run") {
+		t.Errorf("oneshot should be skipped under dry-run; got %q", got)
+	}
+
+	// codex: one-shot unsupported → skipped as a pass, no launch attempted.
+	rep = doctorAgent(codex, found, home, false)
+	if !rep.OK {
+		t.Errorf("codex doctor should pass (oneshot skipped): %+v", rep.Checks)
+	}
+	if got := checkDetail(rep, "oneshot"); !strings.Contains(got, "not supported") {
+		t.Errorf("codex oneshot should report unsupported; got %q", got)
+	}
+
+	// Missing binary fails the bin check and the overall report.
+	rep = doctorAgent(claude, missing, home, true)
+	if rep.OK {
+		t.Error("doctor should fail when the binary is missing")
+	}
+	if got := checkPass(rep, "bin-on-path"); got {
+		t.Error("bin-on-path should fail when LookPath errors")
+	}
+}
+
+func checkDetail(rep doctorReport, name string) string {
+	for _, c := range rep.Checks {
+		if c.Name == name {
+			return c.Detail
+		}
+	}
+	return ""
+}
+
+func checkPass(rep doctorReport, name string) bool {
+	for _, c := range rep.Checks {
+		if c.Name == name {
+			return c.Pass
+		}
+	}
+	return false
 }
 
 // captureStdout redirects os.Stdout across fn and returns what was written.

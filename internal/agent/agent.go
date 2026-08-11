@@ -1,0 +1,132 @@
+// Package agent makes bowt's coding-agent invocation provider-neutral. A lane
+// can run under a different CLI without forking policy: the prompts, the lock,
+// and the writeback contract are all provider-agnostic — the coupling was only
+// ever at the invocation boundary (see rfc/agent-adapters.md).
+//
+// An Agent exposes the two genuinely different ways bowt uses a CLI, and a
+// provider may support one and not the other:
+//
+//   - Session — start a long-running agent with an initial prompt; it works,
+//     writes files, and exits. stdio is inherited (this is what `spawn` uses).
+//   - Oneshot — pipe a prompt in, capture stdout, no side effects (what `review`
+//     will use in a later slice).
+//
+// Each provider also carries static Capabilities so callers can check, loudly
+// and early, whether a lane can run at all under the selected CLI.
+package agent
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/jfb1121/bowt/internal/output"
+)
+
+// DefaultAgent is the provider used when nothing selects one — today's claude,
+// so existing users see no change.
+const DefaultAgent = "claude"
+
+// Capabilities is a provider's static descriptor: what it is called, how it is
+// invoked, and which of bowt's agent features it can support. The Supports*
+// fields let callers refuse (or warn) up front rather than discovering the gap
+// mid-lane.
+type Capabilities struct {
+	// Name is the selector ("claude", "codex").
+	Name string
+	// Bin is the executable looked up on PATH.
+	Bin string
+	// ConfigDir is the per-provider config directory (e.g. ".claude"), copied
+	// into worktrees and where docs install.
+	ConfigDir string
+	// MemoryFile is the provider's project-memory filename (e.g. "CLAUDE.md"),
+	// substituted into the spawn prompts as {{MEMORY_FILE}}.
+	MemoryFile string
+	// SupportsOneshot reports whether Oneshot (stdin→stdout, no side effects) works.
+	SupportsOneshot bool
+	// SupportsHooks reports whether the provider has an Edit/Write guardrail
+	// system bowt can install into.
+	SupportsHooks bool
+}
+
+// Opts are the tunable knobs for a Session. Model/Effort are best-effort: a
+// provider that cannot express a knob drops it with a warning rather than
+// failing or silently pretending (see the RFC). Stdin/Stdout/Stderr wire the
+// child's streams; a nil stream falls back to the process's own.
+type Opts struct {
+	Model  string
+	Effort string
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+// Agent is a provider adapter. It is defined here (not at a single consumer)
+// because it has two real implementations (claude, codex) plus test fakes, and
+// three consumers (spawn, doctor, and later review) share it.
+type Agent interface {
+	// Caps returns the provider's static descriptor.
+	Caps() Capabilities
+	// Session runs the agent as a child with the prompt and inherited stdio,
+	// blocking until it exits. This is what spawn uses.
+	Session(ctx context.Context, prompt string, opts Opts) error
+	// Oneshot feeds prompt on stdin and returns captured stdout with no side
+	// effects. Providers with SupportsOneshot=false return a hard error.
+	Oneshot(ctx context.Context, prompt string) (string, error)
+}
+
+// New returns the named provider wired to real process execution. An unknown
+// name is a hard error (never a silent fallback to the default).
+func New(name string) (Agent, error) {
+	return newWith(name, osRunner{}, output.Errf)
+}
+
+// newWith builds a provider with an injected process runner and warning sink,
+// so tests exercise selection, argument construction, and knob-degradation
+// without launching a real CLI.
+func newWith(name string, r runner, warnf func(string, ...any)) (Agent, error) {
+	switch name {
+	case "claude":
+		return claudeAgent{run: r, warnf: warnf}, nil
+	case "codex":
+		return codexAgent{run: r, warnf: warnf}, nil
+	default:
+		return nil, fmt.Errorf("unknown agent %q (known: claude, codex)", name)
+	}
+}
+
+// Select resolves the provider by precedence: an explicit --agent flag, then
+// BOWT_AGENT, then GWT_AGENT (back-compat) from getenv, then DefaultAgent.
+// getenv is injected (pass os.Getenv) so precedence is testable. An unknown
+// name — from any source — is a hard error.
+func Select(flag string, getenv func(string) string) (Agent, error) {
+	name := flag
+	if name == "" {
+		name = firstNonEmpty(getenv("BOWT_AGENT"), getenv("GWT_AGENT"))
+	}
+	if name == "" {
+		name = DefaultAgent
+	}
+	return New(name)
+}
+
+// RequireOneshot returns a hard error naming the missing capability when a
+// provider cannot run one-shot — call it up front (before any work) in a
+// command that needs stdin→stdout, so the lane fails loudly rather than
+// discovering the gap mid-flight.
+func RequireOneshot(a Agent) error {
+	c := a.Caps()
+	if !c.SupportsOneshot {
+		return fmt.Errorf("agent %q does not support one-shot mode (stdin→stdout, no side effects), which this command requires", c.Name)
+	}
+	return nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
