@@ -431,6 +431,35 @@ func TestLandMarksLaneDone(t *testing.T) {
 	}
 }
 
+// TestLandMarksNewestLaneDone: a reused branch name can carry several lane rows
+// (older attempts left terminal). Land must close the NEWEST — the lane the just-
+// completed land belongs to — not an older stale row, else the active lane stays
+// `review` and reconcile-on-read flips it to `failed`, the bug this fixes.
+func TestLandMarksNewestLaneDone(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	// Seeded oldest-first (ListLanes orders by created ascending): a stale prior
+	// attempt already terminal, then the active lane still at review.
+	if err := f.ls.AddLane(state.Lane{
+		ID: "lane-old", Repo: f.name, Branch: "feature", Status: state.StatusDone,
+	}); err != nil {
+		t.Fatalf("seed old lane: %v", err)
+	}
+	if err := f.ls.AddLane(state.Lane{
+		ID: "lane-new", Repo: f.name, Branch: "feature", Status: state.StatusReview,
+	}); err != nil {
+		t.Fatalf("seed new lane: %v", err)
+	}
+
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true}); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	for _, l := range f.ls.lanes {
+		if l.ID == "lane-new" && l.Status != state.StatusDone {
+			t.Errorf("active lane status = %q; want %q", l.Status, state.StatusDone)
+		}
+	}
+}
+
 // TestLandNoLaneRowIsNoop: landing a branch with no lane row (an interactive
 // spawn or a hand-made branch) succeeds and touches no lane — the lane-close is
 // a silent no-op, not a fault.

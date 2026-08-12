@@ -2228,29 +2228,41 @@ func cmdLand(st state.Store, ls state.LaneStore, branch string, opts landOpts) e
 	return output.Emit(result)
 }
 
-// markLaneDone sets the lane row for (repoName, branch) to StatusDone and reports
-// whether a row was updated. A branch maps to at most one lane; a branch with no
-// lane row (an interactive spawn or a hand-made branch) is a silent no-op. An
-// already-done row is left as-is and still counts as closed.
+// markLaneDone sets the active lane row for (repoName, branch) to StatusDone and
+// reports whether a row was updated. A branch with no lane row (an interactive
+// spawn or a hand-made branch) is a silent no-op. An already-done row is left
+// as-is and still counts as closed.
+//
+// A branch NAME can be reused across spawns (lane ids are random, and land
+// deletes the branch afterward), so several lane rows may share one branch —
+// older attempts left terminal beside the active row. The land that just
+// happened is the newest lane, so close that one, not a stale older row: ignoring
+// this would re-strand the active lane at `review` and reconcile-on-read would
+// flip it to `failed`, the very bug this closes. ListLanes orders by created
+// ascending, so the last match is the newest.
 func markLaneDone(ls state.LaneStore, repoName, branch string) (bool, error) {
 	lanes, err := ls.ListLanes(repoName)
 	if err != nil {
 		return false, fmt.Errorf("list lanes for %q: %w", repoName, err)
 	}
-	for _, l := range lanes {
-		if l.Branch != branch {
-			continue
+	target := -1
+	for i := range lanes {
+		if lanes[i].Branch == branch {
+			target = i
 		}
-		if l.Status == state.StatusDone {
-			return true, nil
-		}
-		l.Status = state.StatusDone
-		if err := ls.UpdateLane(l); err != nil {
-			return false, fmt.Errorf("mark lane %q done: %w", l.ID, err)
-		}
+	}
+	if target < 0 {
+		return false, nil
+	}
+	l := lanes[target]
+	if l.Status == state.StatusDone {
 		return true, nil
 	}
-	return false, nil
+	l.Status = state.StatusDone
+	if err := ls.UpdateLane(l); err != nil {
+		return false, fmt.Errorf("mark lane %q done: %w", l.ID, err)
+	}
+	return true, nil
 }
 
 // reviewOpts carries the parsed flags for `bowt review`.
