@@ -53,13 +53,17 @@ func ArtifactStatus(mode string, writebackDir string) (state.Status, error) {
 			return state.StatusPlanReview, nil
 		}
 		return state.StatusFailed, nil
-	case ModeImpl:
+	case ModeImpl, ModeOrch:
+		// orch mirrors impl for now: a written STATUS.md → review, else failed.
+		// Orch-specific terminal semantics (done-when-children-done, driven by the
+		// wave/deps scheduler) is a later scheduler-slice decision; until that lands
+		// an orchestrator writeback follows the same file-presence contract as impl.
 		if fileExists(filepath.Join(writebackDir, "STATUS.md")) {
 			return state.StatusReview, nil
 		}
 		return state.StatusFailed, nil
 	default:
-		return "", fmt.Errorf("terminal status: unknown mode %q (want %q or %q)", mode, ModePlan, ModeImpl)
+		return "", fmt.Errorf("terminal status: unknown mode %q (want %q, %q, or %q)", mode, ModePlan, ModeImpl, ModeOrch)
 	}
 }
 

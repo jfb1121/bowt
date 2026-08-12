@@ -28,6 +28,12 @@ func TestTerminalStatus(t *testing.T) {
 		{"impl nonzero with STATUS.md", "impl", 1, "STATUS.md", state.StatusFailed},
 		{"impl nonzero no STATUS.md", "impl", 3, "", state.StatusFailed},
 
+		// orch mirrors impl for now: STATUS.md → review, else failed.
+		{"orch exit0 with STATUS.md", "orch", 0, "STATUS.md", state.StatusReview},
+		{"orch exit0 no STATUS.md", "orch", 0, "", state.StatusFailed},
+		{"orch nonzero with STATUS.md", "orch", 1, "STATUS.md", state.StatusFailed},
+		{"orch exit0 with PLAN.md only", "orch", 0, "PLAN.md", state.StatusFailed},
+
 		// The wrong artifact for the mode does not count as success.
 		{"plan exit0 with STATUS.md only", "plan", 0, "STATUS.md", state.StatusFailed},
 		{"impl exit0 with PLAN.md only", "impl", 0, "PLAN.md", state.StatusFailed},
