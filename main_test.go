@@ -278,6 +278,65 @@ func TestDoctorAgent(t *testing.T) {
 	}
 }
 
+// TestDoctorAgentSchema covers the phase-5 schema check: a valid built-in passes
+// the schema check (so the overall report stays OK), and a drop-in that registers
+// (valid name + session block) but LIES at the value level — an unknown
+// schemaVersion the load-time sanity does not catch — fails the schema check and
+// so the whole report, which is what drives newDoctorCmd's os.Exit(1).
+func TestDoctorAgentSchema(t *testing.T) {
+	found := func(string) (string, error) { return "/usr/local/bin/x", nil }
+	home := t.TempDir()
+
+	// Valid built-in: the schema check is present and passes.
+	claude, err := agent.New("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := doctorAgent(claude, found, home, true)
+	if !checkPass(rep, "schema") {
+		t.Errorf("valid built-in should pass the schema check: %+v", rep.Checks)
+	}
+	if !strings.Contains(checkDetail(rep, "schema"), "valid") {
+		t.Errorf("schema detail should report valid; got %q", checkDetail(rep, "schema"))
+	}
+	if got := checkDetail(rep, "origin"); !strings.Contains(got, "built-in") {
+		t.Errorf("built-in provider should report a built-in origin; got %q", got)
+	}
+
+	// A lying drop-in: registers (has name + session) but its schemaVersion is
+	// unknown, which only doctor's static validation catches.
+	dropHome := t.TempDir()
+	agentsDir := filepath.Join(dropHome, ".bowt", "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const badDropin = `{
+  "schemaVersion": 99,
+  "name": "doctorbadschema", "bin": "doctorbadschema",
+  "configDir": ".doctorbadschema", "memoryFile": "DOCTORBAD.md",
+  "invocations": { "session": { "prefix": ["run"], "prompt": "arg-after-dashdash" } }
+}`
+	if err := os.WriteFile(filepath.Join(agentsDir, "doctorbadschema.json"), []byte(badDropin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dropHome)
+	agent.LoadDropins(func(string, ...any) {}) // register the drop-in silently
+	bad, err := agent.New("doctorbadschema")
+	if err != nil {
+		t.Fatalf("drop-in should register (valid name+session): %v", err)
+	}
+	rep = doctorAgent(bad, found, home, true)
+	if rep.OK {
+		t.Errorf("doctor should fail on a lying drop-in: %+v", rep.Checks)
+	}
+	if checkPass(rep, "schema") {
+		t.Errorf("schema check should fail for an unknown schemaVersion: %+v", rep.Checks)
+	}
+	if got := checkDetail(rep, "origin"); !strings.Contains(got, "drop-in") {
+		t.Errorf("drop-in provider should report a drop-in origin; got %q", got)
+	}
+}
+
 func checkDetail(rep doctorReport, name string) string {
 	for _, c := range rep.Checks {
 		if c.Name == name {

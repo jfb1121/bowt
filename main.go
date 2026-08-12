@@ -2174,6 +2174,31 @@ func doctorAgent(ag agent.Agent, lookPath func(string) (string, error), home str
 		}
 	}
 
+	// schema (RFC §11.1) — FIRST check: statically validate the descriptor
+	// (known schemaVersion, required fields, effort keys ∈ enum, legal prompt
+	// deliveries, at-most-one-{value} render lists) so a malformed or
+	// lying-at-the-value-level drop-in fails here, not at run time. A failing
+	// schema check sets rep.OK=false, and newDoctorCmd's os.Exit(1) then fires.
+	// A non-descriptor provider (future-proofing) is skipped, not failed.
+	if problems, checked := agent.Validate(ag); !checked {
+		add("schema", true, "not a descriptor-backed provider (skipped)")
+	} else if len(problems) == 0 {
+		add("schema", true, "descriptor valid")
+	} else {
+		add("schema", false, strings.Join(problems, "; "))
+	}
+
+	// origin/provenance (informational, never fails): whether this provider is a
+	// trusted embedded built-in or a user drop-in, and for a drop-in the file to
+	// edit — the debugging context a doctor run on one's own descriptor wants.
+	if builtin, path, ok := agent.Provenance(ag); ok {
+		if builtin {
+			add("origin", true, "built-in (embedded)")
+		} else {
+			add("origin", true, "drop-in: "+path)
+		}
+	}
+
 	// bin on PATH
 	if p, err := lookPath(caps.Bin); err == nil {
 		add("bin-on-path", true, p)
