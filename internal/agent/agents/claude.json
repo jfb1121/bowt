@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "claude",
+  "bin": "claude",
+  "configDir": ".claude",
+  "memoryFile": "CLAUDE.md",
+  "hooks": true,
+  "model": {
+    "aliases": {
+      "opus": "claude-opus-4-8",
+      "sonnet": "claude-sonnet-5",
+      "haiku": "claude-haiku-4-5-20251001"
+    },
+    "strong": "claude-opus-4-8",
+    "render": ["--model", "{value}"]
+  },
+  "effort": {
+    "low": ["--effort", "low"],
+    "medium": ["--effort", "medium"],
+    "high": ["--effort", "high"]
+  },
+  "invocations": {
+    "session": { "prefix": ["--dangerously-skip-permissions"], "prompt": "arg-after-dashdash" },
+    "oneshot": { "prefix": ["-p"] },
+    "headless": { "prefix": ["-p", "--dangerously-skip-permissions"], "prompt": "arg-after-dashdash" }
+  }
+}

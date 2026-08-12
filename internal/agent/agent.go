@@ -115,13 +115,20 @@ func register(name string, f factory) {
 	registry[name] = f
 }
 
+// init parses the embedded built-in descriptors and registers a descriptorAgent
+// factory for each. The built-ins are now DATA (agents/*.json), not hand-written
+// Go structs: newWith("claude") returns a descriptorAgent parsed from claude.json
+// that is behaviourally byte-identical to the former claudeAgent (proven in
+// descriptor_test.go and builtin_test.go). loadBuiltins panics on a malformed
+// built-in — a build/ship bug — before any registration runs.
 func init() {
-	register("claude", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return claudeAgent{run: r, warnf: warnf}, nil
-	})
-	register("codex", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return codexAgent{run: r, warnf: warnf}, nil
-	})
+	loadBuiltins()
+	for name := range builtinPaths {
+		desc := builtins[name].desc
+		register(name, func(r runner, warnf func(string, ...any)) (Agent, error) {
+			return descriptorAgent{desc: desc, run: r, warnf: warnf}, nil
+		})
+	}
 }
 
 // knownAgents returns the registered selector names sorted, so the unknown-name

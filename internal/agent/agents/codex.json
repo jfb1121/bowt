@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "codex",
+  "bin": "codex",
+  "configDir": ".codex",
+  "memoryFile": "AGENTS.md",
+  "hooks": false,
+  "model": { "render": ["--model", "{value}"] },
+  "invocations": {
+    "session": { "prefix": ["exec"], "prompt": "arg-after-dashdash" }
+  }
+}

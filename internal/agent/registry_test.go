@@ -1,9 +1,26 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
+
+// stubAgent is a throwaway Agent for the registry mechanism tests. register /
+// newWith / knownAgents only care that a factory returns a non-nil Agent, not
+// what it does, so these tests need no real provider. It replaces the former
+// claudeAgent{} factory bodies now that the built-in structs are gone (built-ins
+// are descriptorAgents parsed from embedded JSON); its behaviour is covered by
+// descriptor_test.go and the argv gate in agent_test.go, not here.
+type stubAgent struct {
+	run   runner
+	warnf func(string, ...any)
+}
+
+func (stubAgent) Caps() Capabilities                              { return Capabilities{} }
+func (stubAgent) Session(context.Context, string, Opts) error     { return nil }
+func (stubAgent) Oneshot(context.Context, string) (string, error) { return "", nil }
+func (stubAgent) Headless(context.Context, string, Opts) error    { return nil }
 
 // register + newWith lookup: a freshly registered provider is reachable through
 // newWith and its factory receives the injected runner and warnf.
@@ -18,7 +35,7 @@ func TestRegisterAndLookup(t *testing.T) {
 			t.Errorf("factory got a different runner than injected")
 		}
 		warnf("touched") // prove the sink is wired through
-		return claudeAgent{run: r, warnf: warnf}, nil
+		return stubAgent{run: r, warnf: warnf}, nil
 	})
 
 	a, err := newWith("stub", fr, func(format string, args ...any) {
@@ -42,7 +59,7 @@ func TestRegisterDuplicatePanics(t *testing.T) {
 	defer restore()
 
 	register("dup", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return claudeAgent{run: r, warnf: warnf}, nil
+		return stubAgent{run: r, warnf: warnf}, nil
 	})
 
 	defer func() {
@@ -55,7 +72,7 @@ func TestRegisterDuplicatePanics(t *testing.T) {
 		}
 	}()
 	register("dup", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return claudeAgent{run: r, warnf: warnf}, nil
+		return stubAgent{run: r, warnf: warnf}, nil
 	})
 }
 
@@ -77,10 +94,10 @@ func TestKnownAgentsSorted(t *testing.T) {
 	defer restore()
 
 	register("zeta", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return claudeAgent{run: r, warnf: warnf}, nil
+		return stubAgent{run: r, warnf: warnf}, nil
 	})
 	register("alpha", func(r runner, warnf func(string, ...any)) (Agent, error) {
-		return claudeAgent{run: r, warnf: warnf}, nil
+		return stubAgent{run: r, warnf: warnf}, nil
 	})
 	got := strings.Join(knownAgents(), ",")
 	if got != "alpha,zeta" {
