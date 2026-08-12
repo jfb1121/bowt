@@ -517,7 +517,7 @@ repo's current branch / main), then, holding the worktree lock:
      pushes nothing, so there is no remote branch to delete).
 
 The result is JSON: {landed, branch, base, commit, gate_verdict, pushed,
-cleaned, remote_deleted}. Any refusal exits non-zero.`,
+cleaned, remote_deleted, lane_done}. Any refusal exits non-zero.`,
 		Example: `  bowt land feature/login
   bowt land hotfix --base release/2.0
   bowt land docs --no-push --keep`,
@@ -528,7 +528,11 @@ cleaned, remote_deleted}. Any refusal exits non-zero.`,
 			if err != nil {
 				return err
 			}
-			return cmdLand(st, args[0], opts)
+			ls, err := state.OpenLanes()
+			if err != nil {
+				return err
+			}
+			return cmdLand(st, ls, args[0], opts)
 		},
 	}
 	c.Flags().StringVar(&opts.base, "base", "", "base branch to land onto (default: main repo's current branch)")
@@ -2030,6 +2034,10 @@ type landResult struct {
 	Pushed        bool   `json:"pushed"`
 	Cleaned       bool   `json:"cleaned"`
 	RemoteDeleted bool   `json:"remote_deleted"`
+	// LaneDone is true when a lane row for this branch existed and was closed to
+	// StatusDone. Absent (omitempty) when the branch had no lane — an interactive
+	// spawn or a hand-made branch — so a no-lane land reads identically to before.
+	LaneDone bool `json:"lane_done,omitempty"`
 }
 
 // gateSkipped marks a land that bypassed verification via --no-gate; any other
@@ -2039,7 +2047,7 @@ const gateSkipped = "skipped"
 // cmdLand gates a branch, fast-forwards it onto its base, pushes, and cleans up
 // — refusing (never forcing) if the branch is ungated, dirty, or not a
 // fast-forward. It encodes "never merge an ungated lane" as a verb.
-func cmdLand(st state.Store, branch string, opts landOpts) error {
+func cmdLand(st state.Store, ls state.LaneStore, branch string, opts landOpts) error {
 	main, err := repo.MainRepo()
 	if err != nil {
 		return err
@@ -2205,7 +2213,44 @@ func cmdLand(st state.Store, branch string, opts landOpts) error {
 		}
 	}
 
+	// Close the lane: a landed branch's lane row (if any) is terminal-done. Do
+	// this regardless of --keep/--no-push — the branch is landed either way — so a
+	// landed lane reads `done`, not the `review`→`failed` that reconcile-on-read
+	// would otherwise infer from the (now-absent) worktree. Best-effort: the merge
+	// above is already committed and irreversible, so a lane-store error warns but
+	// never turns a successful land into a failure. No matching row is a no-op.
+	if done, lerr := markLaneDone(ls, name, branch); lerr != nil {
+		output.Errf("landed %q onto %s, but marking its lane done failed (the land still succeeded): %v", branch, base, lerr)
+	} else {
+		result.LaneDone = done
+	}
+
 	return output.Emit(result)
+}
+
+// markLaneDone sets the lane row for (repoName, branch) to StatusDone and reports
+// whether a row was updated. A branch maps to at most one lane; a branch with no
+// lane row (an interactive spawn or a hand-made branch) is a silent no-op. An
+// already-done row is left as-is and still counts as closed.
+func markLaneDone(ls state.LaneStore, repoName, branch string) (bool, error) {
+	lanes, err := ls.ListLanes(repoName)
+	if err != nil {
+		return false, fmt.Errorf("list lanes for %q: %w", repoName, err)
+	}
+	for _, l := range lanes {
+		if l.Branch != branch {
+			continue
+		}
+		if l.Status == state.StatusDone {
+			return true, nil
+		}
+		l.Status = state.StatusDone
+		if err := ls.UpdateLane(l); err != nil {
+			return false, fmt.Errorf("mark lane %q done: %w", l.ID, err)
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 // reviewOpts carries the parsed flags for `bowt review`.

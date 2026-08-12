@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,10 +39,73 @@ const (
 // repo's registry name, the main repo path, and the feature worktree path.
 type landFixture struct {
 	st       state.Store
+	ls       *fakeLaneStore
 	name     string
 	mainRepo string
 	wtPath   string
 	origin   string // bare repo standing in for "origin"
+}
+
+// fakeLaneStore is a minimal in-memory state.LaneStore for the land tests: it
+// lets a test seed a lane and assert land closes it, and (via listErr/updateErr)
+// inject a store error to prove land's lane-close is best-effort. It is NOT the
+// real ~/.bowt/state.db, so land tests never pollute the developer's lanes.
+type fakeLaneStore struct {
+	lanes     []state.Lane
+	listErr   error // when set, ListLanes returns it
+	updateErr error // when set, UpdateLane returns it
+}
+
+func (f *fakeLaneStore) AddLane(l state.Lane) error {
+	f.lanes = append(f.lanes, l)
+	return nil
+}
+
+func (f *fakeLaneStore) GetLane(id string) (state.Lane, bool, error) {
+	for _, l := range f.lanes {
+		if l.ID == id {
+			return l, true, nil
+		}
+	}
+	return state.Lane{}, false, nil
+}
+
+func (f *fakeLaneStore) ListLanes(repo string) ([]state.Lane, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []state.Lane
+	for _, l := range f.lanes {
+		if l.Repo == repo {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeLaneStore) UpdateLane(l state.Lane) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	for i := range f.lanes {
+		if f.lanes[i].ID == l.ID {
+			f.lanes[i] = l
+			return nil
+		}
+	}
+	return state.ErrLaneNotFound
+}
+
+// laneFor returns the seeded lane on branch, failing the test if absent.
+func (f *fakeLaneStore) laneFor(t *testing.T, branch string) state.Lane {
+	t.Helper()
+	for _, l := range f.lanes {
+		if l.Branch == branch {
+			return l
+		}
+	}
+	t.Fatalf("no lane on branch %q", branch)
+	return state.Lane{}
 }
 
 func newLandFixture(t *testing.T, hookBody string) landFixture {
@@ -100,7 +164,7 @@ func newLandFixture(t *testing.T, hookBody string) landFixture {
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return landFixture{st: st, name: name, mainRepo: mainRepo, wtPath: wtPath, origin: origin}
+	return landFixture{st: st, ls: &fakeLaneStore{}, name: name, mainRepo: mainRepo, wtPath: wtPath, origin: origin}
 }
 
 // remoteBranchExists reports whether refs/heads/branch is present on origin.
@@ -147,7 +211,7 @@ func TestLandHappyPath(t *testing.T) {
 	f := newLandFixture(t, passHook)
 	featHead := f.head(t, f.wtPath)
 
-	if err := cmdLand(f.st, "feature", landOpts{noPush: true}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true}); err != nil {
 		t.Fatalf("land: %v", err)
 	}
 
@@ -179,7 +243,7 @@ func TestLandDeletesRemoteBranch(t *testing.T) {
 		t.Fatal("setup: feature not on origin")
 	}
 
-	if err := cmdLand(f.st, "feature", landOpts{}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{}); err != nil {
 		t.Fatalf("land: %v", err)
 	}
 	if f.remoteBranchExists(t, "feature") {
@@ -200,7 +264,7 @@ func TestLandDeletesRemoteBranchNeverPushed(t *testing.T) {
 		t.Fatal("setup: feature unexpectedly on origin")
 	}
 
-	if err := cmdLand(f.st, "feature", landOpts{}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{}); err != nil {
 		t.Fatalf("land should tolerate a never-pushed branch: %v", err)
 	}
 }
@@ -210,7 +274,7 @@ func TestLandKeepKeepsRemoteBranch(t *testing.T) {
 	f := newLandFixture(t, passHook)
 	git(t, f.wtPath, "push", "-q", "origin", "feature")
 
-	if err := cmdLand(f.st, "feature", landOpts{keep: true}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{keep: true}); err != nil {
 		t.Fatalf("land: %v", err)
 	}
 	if !f.remoteBranchExists(t, "feature") {
@@ -224,7 +288,7 @@ func TestLandNoPushKeepsRemoteBranch(t *testing.T) {
 	f := newLandFixture(t, passHook)
 	git(t, f.wtPath, "push", "-q", "origin", "feature")
 
-	if err := cmdLand(f.st, "feature", landOpts{noPush: true}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true}); err != nil {
 		t.Fatalf("land: %v", err)
 	}
 	if !f.remoteBranchExists(t, "feature") {
@@ -235,7 +299,7 @@ func TestLandNoPushKeepsRemoteBranch(t *testing.T) {
 // TestLandKeep: --keep lands but preserves the worktree and branch.
 func TestLandKeep(t *testing.T) {
 	f := newLandFixture(t, passHook)
-	if err := cmdLand(f.st, "feature", landOpts{noPush: true, keep: true}); err != nil {
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true, keep: true}); err != nil {
 		t.Fatalf("land: %v", err)
 	}
 	if _, err := os.Stat(f.wtPath); err != nil {
@@ -251,7 +315,7 @@ func TestLandGateFailRefuses(t *testing.T) {
 	f := newLandFixture(t, failHook)
 	before := f.head(t, f.mainRepo)
 
-	err := cmdLand(f.st, "feature", landOpts{noPush: true})
+	err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true})
 	if err == nil {
 		t.Fatal("land should refuse on a failing gate")
 	}
@@ -274,7 +338,7 @@ func TestLandDirtyRefuses(t *testing.T) {
 	}
 	before := f.head(t, f.mainRepo)
 
-	err := cmdLand(f.st, "feature", landOpts{noPush: true})
+	err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true})
 	if err == nil {
 		t.Fatal("land should refuse a dirty worktree")
 	}
@@ -298,7 +362,7 @@ func TestLandNonFFRefuses(t *testing.T) {
 	git(t, f.mainRepo, "commit", "-q", "-m", "diverge")
 	before := f.head(t, f.mainRepo)
 
-	err := cmdLand(f.st, "feature", landOpts{noPush: true})
+	err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true})
 	if err == nil {
 		t.Fatal("land should refuse a non-fast-forward branch")
 	}
@@ -315,7 +379,7 @@ func TestLandNoHookHardErrors(t *testing.T) {
 	f := newLandFixture(t, "") // no hook
 	before := f.head(t, f.mainRepo)
 
-	err := cmdLand(f.st, "feature", landOpts{noPush: true})
+	err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true})
 	if err == nil {
 		t.Fatal("land should hard-error when there is no gate hook and no --no-gate")
 	}
@@ -334,7 +398,7 @@ func TestLandNoGateWarnsAndProceeds(t *testing.T) {
 
 	var landErr error
 	stderr := captureStderr(t, func() {
-		landErr = cmdLand(f.st, "feature", landOpts{noPush: true, noGate: true})
+		landErr = cmdLand(f.st, f.ls, "feature", landOpts{noPush: true, noGate: true})
 	})
 	if landErr != nil {
 		t.Fatalf("land --no-gate should proceed: %v", landErr)
@@ -347,10 +411,73 @@ func TestLandNoGateWarnsAndProceeds(t *testing.T) {
 	}
 }
 
+// TestLandMarksLaneDone: a successful land closes the branch's lane row to
+// StatusDone — the fix for a landed lane reading `failed`. A lane left at
+// `review` (a running state) would be reconciled to `failed` once its worktree
+// is gone; `done` is terminal, so land setting it closes the loop.
+func TestLandMarksLaneDone(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	if err := f.ls.AddLane(state.Lane{
+		ID: "lane-feat", Repo: f.name, Branch: "feature", Status: state.StatusReview,
+	}); err != nil {
+		t.Fatalf("seed lane: %v", err)
+	}
+
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true}); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	if got := f.ls.laneFor(t, "feature").Status; got != state.StatusDone {
+		t.Errorf("lane status = %q after land; want %q", got, state.StatusDone)
+	}
+}
+
+// TestLandNoLaneRowIsNoop: landing a branch with no lane row (an interactive
+// spawn or a hand-made branch) succeeds and touches no lane — the lane-close is
+// a silent no-op, not a fault.
+func TestLandNoLaneRowIsNoop(t *testing.T) {
+	f := newLandFixture(t, passHook) // fixture seeds no lane
+	if err := cmdLand(f.st, f.ls, "feature", landOpts{noPush: true}); err != nil {
+		t.Fatalf("land with no lane row should succeed: %v", err)
+	}
+	if len(f.ls.lanes) != 0 {
+		t.Errorf("lane store gained %d rows; want none touched", len(f.ls.lanes))
+	}
+}
+
+// TestLandLaneUpdateErrorDoesNotFail: the merge is already committed and
+// irreversible by the time land closes the lane, so a lane-store error must warn
+// but never turn a successful land into a failure.
+func TestLandLaneUpdateErrorDoesNotFail(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	if err := f.ls.AddLane(state.Lane{
+		ID: "lane-feat", Repo: f.name, Branch: "feature", Status: state.StatusReview,
+	}); err != nil {
+		t.Fatalf("seed lane: %v", err)
+	}
+	f.ls.updateErr = errors.New("boom")
+	featHead := f.head(t, f.wtPath)
+
+	var landErr error
+	stderr := captureStderr(t, func() {
+		landErr = cmdLand(f.st, f.ls, "feature", landOpts{noPush: true})
+	})
+	if landErr != nil {
+		t.Fatalf("a lane-store error must not fail a completed land: %v", landErr)
+	}
+	// The land really happened: base advanced to the branch HEAD.
+	if got := f.head(t, f.mainRepo); got != featHead {
+		t.Errorf("main HEAD = %s; want feature HEAD %s (land did not happen)", got, featHead)
+	}
+	// The failure was surfaced, not swallowed.
+	if !strings.Contains(stderr, "marking its lane done failed") {
+		t.Errorf("stderr = %q; want a best-effort lane-close warning", stderr)
+	}
+}
+
 // TestLandUnregisteredRefuses: an unknown branch → refuse (nothing to land).
 func TestLandUnregisteredRefuses(t *testing.T) {
 	f := newLandFixture(t, passHook)
-	if err := cmdLand(f.st, "ghost", landOpts{noPush: true}); err == nil {
+	if err := cmdLand(f.st, f.ls, "ghost", landOpts{noPush: true}); err == nil {
 		t.Fatal("land should refuse an unregistered branch")
 	} else if !strings.Contains(err.Error(), "no worktree registered") {
 		t.Errorf("error = %q; want an unregistered refusal", err)
