@@ -41,6 +41,7 @@ type landFixture struct {
 	name     string
 	mainRepo string
 	wtPath   string
+	origin   string // bare repo standing in for "origin"
 }
 
 func newLandFixture(t *testing.T, hookBody string) landFixture {
@@ -48,10 +49,16 @@ func newLandFixture(t *testing.T, hookBody string) landFixture {
 	// Isolate ~/.bowt (locks, default state) from the real home.
 	t.Setenv("HOME", t.TempDir())
 
+	// A bare repo as "origin" so land's push (and remote-branch delete) exercise
+	// real git remote semantics. Harmless for --no-push tests, which never push.
+	origin := t.TempDir()
+	git(t, origin, "init", "-q", "--bare")
+
 	mainRepo := t.TempDir()
 	git(t, mainRepo, "init", "-q")
 	git(t, mainRepo, "config", "user.email", "t@example.com")
 	git(t, mainRepo, "config", "user.name", "t")
+	git(t, mainRepo, "remote", "add", "origin", origin)
 	if err := os.WriteFile(filepath.Join(mainRepo, "base.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +100,14 @@ func newLandFixture(t *testing.T, hookBody string) landFixture {
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return landFixture{st: st, name: name, mainRepo: mainRepo, wtPath: wtPath}
+	return landFixture{st: st, name: name, mainRepo: mainRepo, wtPath: wtPath, origin: origin}
+}
+
+// remoteBranchExists reports whether refs/heads/branch is present on origin.
+func (f landFixture) remoteBranchExists(t *testing.T, branch string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "-C", f.origin, "rev-parse", "--verify", "refs/heads/"+branch)
+	return cmd.Run() == nil
 }
 
 func (f landFixture) head(t *testing.T, dir string) string {
@@ -152,6 +166,69 @@ func TestLandHappyPath(t *testing.T) {
 	// Registry row gone.
 	if _, ok, _ := f.st.Get(f.name, "feature"); ok {
 		t.Error("registry still has 'feature'; want deregistered")
+	}
+}
+
+// TestLandDeletesRemoteBranch: a normal land (push enabled) deletes the merged
+// remote branch on origin along with the local branch and worktree.
+func TestLandDeletesRemoteBranch(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	// The feature branch exists on origin (as it would after a spawn/push).
+	git(t, f.wtPath, "push", "-q", "origin", "feature")
+	if !f.remoteBranchExists(t, "feature") {
+		t.Fatal("setup: feature not on origin")
+	}
+
+	if err := cmdLand(f.st, "feature", landOpts{}); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	if f.remoteBranchExists(t, "feature") {
+		t.Error("origin/feature still present; want deleted on a normal land")
+	}
+	// Local cleanup still happened too.
+	if repo.BranchExists(f.mainRepo, "feature") {
+		t.Error("local branch 'feature' still exists; want deleted")
+	}
+}
+
+// TestLandDeletesRemoteBranchNeverPushed: a normal land where the branch was
+// never pushed to origin still succeeds — remote-delete is a no-op, not a fault.
+func TestLandDeletesRemoteBranchNeverPushed(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	// No `git push origin feature` here: origin has no feature ref.
+	if f.remoteBranchExists(t, "feature") {
+		t.Fatal("setup: feature unexpectedly on origin")
+	}
+
+	if err := cmdLand(f.st, "feature", landOpts{}); err != nil {
+		t.Fatalf("land should tolerate a never-pushed branch: %v", err)
+	}
+}
+
+// TestLandKeepKeepsRemoteBranch: --keep preserves the remote branch too.
+func TestLandKeepKeepsRemoteBranch(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	git(t, f.wtPath, "push", "-q", "origin", "feature")
+
+	if err := cmdLand(f.st, "feature", landOpts{keep: true}); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	if !f.remoteBranchExists(t, "feature") {
+		t.Error("origin/feature deleted despite --keep")
+	}
+}
+
+// TestLandNoPushKeepsRemoteBranch: --no-push pushes nothing, so the remote
+// branch is left alone.
+func TestLandNoPushKeepsRemoteBranch(t *testing.T) {
+	f := newLandFixture(t, passHook)
+	git(t, f.wtPath, "push", "-q", "origin", "feature")
+
+	if err := cmdLand(f.st, "feature", landOpts{noPush: true}); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	if !f.remoteBranchExists(t, "feature") {
+		t.Error("origin/feature deleted despite --no-push")
 	}
 }
 

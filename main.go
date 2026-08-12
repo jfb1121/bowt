@@ -512,10 +512,12 @@ repo's current branch / main), then, holding the worktree lock:
      onto base ("rebase first") — the check that stops half-merges.
   3. fast-forwards base to the branch HEAD (git merge --ff-only) and pushes
      (unless --no-push); any conflict aborts cleanly, never a partial state.
-  4. removes the worktree and deletes the merged local branch (unless --keep).
+  4. removes the worktree and deletes the merged local branch, then deletes the
+     remote branch (origin/<branch>) too — unless --keep, or --no-push (which
+     pushes nothing, so there is no remote branch to delete).
 
 The result is JSON: {landed, branch, base, commit, gate_verdict, pushed,
-cleaned}. Any refusal exits non-zero. The remote branch is left untouched.`,
+cleaned, remote_deleted}. Any refusal exits non-zero.`,
 		Example: `  bowt land feature/login
   bowt land hotfix --base release/2.0
   bowt land docs --no-push --keep`,
@@ -2020,13 +2022,14 @@ type landOpts struct {
 // landResult is the agent-facing JSON `bowt land` emits on a successful land.
 // A declared shape (house style) beats an ad-hoc map for structured output.
 type landResult struct {
-	Landed      bool   `json:"landed"`
-	Branch      string `json:"branch"`
-	Base        string `json:"base"`
-	Commit      string `json:"commit"`
-	GateVerdict string `json:"gate_verdict"`
-	Pushed      bool   `json:"pushed"`
-	Cleaned     bool   `json:"cleaned"`
+	Landed        bool   `json:"landed"`
+	Branch        string `json:"branch"`
+	Base          string `json:"base"`
+	Commit        string `json:"commit"`
+	GateVerdict   string `json:"gate_verdict"`
+	Pushed        bool   `json:"pushed"`
+	Cleaned       bool   `json:"cleaned"`
+	RemoteDeleted bool   `json:"remote_deleted"`
 }
 
 // gateSkipped marks a land that bypassed verification via --no-gate; any other
@@ -2182,11 +2185,24 @@ func cmdLand(st state.Store, branch string, opts landOpts) error {
 			_ = output.Emit(result)
 			return fmt.Errorf("landed %q, but worktree cleanup failed: %w", branch, err)
 		}
-		if err := repo.DeleteBranch(main, branch); err != nil {
+		// -D, not -d: land advances the base, not the branch's upstream, so `git
+		// branch -d`'s merged-check would refuse a branch that is provably merged
+		// (we only reach here after a verified FF-merge).
+		if err := repo.DeleteBranchForce(main, branch); err != nil {
 			_ = output.Emit(result)
 			return fmt.Errorf("landed %q and removed its worktree, but deleting local branch failed: %w", branch, err)
 		}
 		result.Cleaned = true
+
+		// The base was pushed, so the merged feature branch is now dead weight on
+		// the remote — delete it too. Tolerates a branch that was never pushed.
+		if result.Pushed {
+			if err := repo.DeleteRemoteBranch(main, "origin", branch); err != nil {
+				_ = output.Emit(result)
+				return fmt.Errorf("landed %q and cleaned up locally, but deleting remote branch origin/%s failed: %w", branch, branch, err)
+			}
+			result.RemoteDeleted = true
+		}
 	}
 
 	return output.Emit(result)

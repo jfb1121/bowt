@@ -180,3 +180,26 @@ func DeleteBranch(dir, branch string) error {
 	_, err := run(dir, "branch", "-d", branch)
 	return err
 }
+
+// DeleteBranchForce deletes a local branch unconditionally (`git branch -D`),
+// skipping the merged-check `git branch -d` performs. `land` uses it after a
+// verified fast-forward merge: the branch is provably merged, but `-d` refuses
+// it because land advances the *base*, not the branch's upstream tracking ref,
+// so the branch reads as "not merged into its upstream".
+func DeleteBranchForce(dir, branch string) error {
+	_, err := run(dir, "branch", "-D", branch)
+	return err
+}
+
+// DeleteRemoteBranch deletes branch on remote (`git push <remote> --delete
+// <branch>`) from dir. A branch that was never pushed (or is already gone) is a
+// no-op success, not an error — git reports "remote ref does not exist" and
+// exits non-zero, which we swallow. A genuine failure (network, auth) is
+// returned.
+func DeleteRemoteBranch(dir, remote, branch string) error {
+	_, err := run(dir, "push", remote, "--delete", branch)
+	if err != nil && strings.Contains(err.Error(), "remote ref does not exist") {
+		return nil
+	}
+	return err
+}

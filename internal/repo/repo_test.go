@@ -24,6 +24,46 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
+// TestDeleteRemoteBranch: deletes an existing remote branch, and is a no-op on a
+// ref that was never pushed. A local bare repo stands in for "origin".
+func TestDeleteRemoteBranch(t *testing.T) {
+	git := func(dir string, args ...string) {
+		t.Helper()
+		full := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	origin := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", origin).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	work := initRepo(t)
+	git(work, "remote", "add", "origin", origin)
+	git(work, "branch", "feature")
+	git(work, "push", "-q", "origin", "feature")
+
+	// Sanity: the remote ref exists before we delete it.
+	if out, err := exec.Command("git", "-C", origin, "rev-parse", "--verify", "refs/heads/feature").CombinedOutput(); err != nil {
+		t.Fatalf("remote branch not pushed: %v\n%s", err, out)
+	}
+
+	// Deleting the existing branch succeeds and removes the remote ref.
+	if err := DeleteRemoteBranch(work, "origin", "feature"); err != nil {
+		t.Fatalf("DeleteRemoteBranch(existing): %v", err)
+	}
+	if out, err := exec.Command("git", "-C", origin, "rev-parse", "--verify", "refs/heads/feature").CombinedOutput(); err == nil {
+		t.Fatalf("remote branch still present after delete: %s", out)
+	}
+
+	// Deleting a ref that never existed is a no-op success, not an error.
+	if err := DeleteRemoteBranch(work, "origin", "never-pushed"); err != nil {
+		t.Fatalf("DeleteRemoteBranch(missing) = %v; want no-op success", err)
+	}
+}
+
 func TestResolution(t *testing.T) {
 	dir := initRepo(t)
 
