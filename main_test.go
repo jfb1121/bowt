@@ -217,6 +217,56 @@ func TestSpawnPrintPromptCodexAgent(t *testing.T) {
 	}
 }
 
+// --orch selects the orchestrator wrapper: the assembled prompt is orch.md and
+// carries its load-bearing role clauses. Interactive by default; --print-prompt
+// is the launch-free seam, same as plan/impl.
+func TestSpawnPrintPromptOrch(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "subagent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "subagent", "PROMPT.md"), []byte("ORCH-BRIEF-BODY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if _, err := execRoot(t, "spawn", "--orch", "--print-prompt"); err != nil {
+			t.Fatalf("spawn --orch --print-prompt: %v", err)
+		}
+	})
+
+	if !strings.HasPrefix(out, "agent: claude · prompt: orch.md @ ") {
+		t.Errorf("orch prompt should start with an orch.md provenance line; got:\n%s", out[:min(120, len(out))])
+	}
+	if !strings.Contains(out, "ORCH-BRIEF-BODY") {
+		t.Errorf("assembled orch prompt missing brief body:\n%s", out)
+	}
+	if !strings.Contains(out, "ORCHESTRATOR") || !strings.Contains(out, "NEVER WRITE PRODUCTION CODE") {
+		t.Errorf("orch prompt missing role clauses:\n%s", out)
+	}
+}
+
+// --impl and --orch are mutually exclusive: they pick different wrapper roles.
+// (--orch --headless is NOT blocked — that is the nested orch-of-orch case.)
+func TestSpawnImplAndOrchConflict(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	_, err := execRoot(t, "spawn", "--impl", "--orch", "--print-prompt")
+	if err == nil {
+		t.Fatal("spawn --impl --orch should error, but did not")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should explain the conflict; got: %v", err)
+	}
+}
+
 // An unknown --agent is a hard error before any work.
 func TestSpawnUnknownAgent(t *testing.T) {
 	dir := t.TempDir()

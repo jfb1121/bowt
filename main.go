@@ -262,10 +262,17 @@ subagent/FOLLOWUP.md is auto-appended when present.`,
 			if len(args) == 1 {
 				opts.brief = args[0]
 			}
+			// --impl and --orch pick different wrapper roles; they cannot both apply.
+			// (--orch --headless IS allowed — a nested orch-of-orch runs one level
+			// down; only the human-attended ancestor acts on owner-only classes.)
+			if opts.impl && opts.orch {
+				return fmt.Errorf("--impl and --orch are mutually exclusive: pick one role (impl, or orchestrator)")
+			}
 			return cmdSpawn(opts)
 		},
 	}
 	c.Flags().BoolVar(&opts.impl, "impl", false, "implementation pass (default is a plan + writeback pass)")
+	c.Flags().BoolVar(&opts.orch, "orch", false, "orchestrator pass: decompose, delegate, gate, escalate (never writes code; interactive by default; --headless permitted for nested orch-of-orch)")
 	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (claude, codex; default: $BOWT_AGENT/$GWT_AGENT or claude)")
 	c.Flags().StringVar(&opts.model, "model", "", "agent model (alias opus/sonnet/haiku, or a full ID)")
 	c.Flags().StringVar(&opts.effort, "effort", "", "agent reasoning effort (e.g. high)")
@@ -1125,6 +1132,7 @@ func cmdExec(st state.Store, args []string) error {
 type spawnOpts struct {
 	brief       string
 	impl        bool
+	orch        bool
 	agent       string
 	model       string
 	effort      string
@@ -1157,8 +1165,11 @@ func cmdSpawn(opts spawnOpts) error {
 	}
 
 	mode := spawn.ModePlan
-	if opts.impl {
+	switch {
+	case opts.impl:
 		mode = spawn.ModeImpl
+	case opts.orch:
+		mode = spawn.ModeOrch
 	}
 	// The provider's memory file fills {{MEMORY_FILE}}; its name is stamped into
 	// the provenance line so a reader knows which CLI produced the writeback.
@@ -1178,8 +1189,8 @@ func cmdSpawn(opts spawnOpts) error {
 		output.Errf("warning: agent %q has no hook support — this lane runs without Edit/Write guardrails", caps.Name)
 	}
 
-	model := spawn.ResolveModel(opts.model, opts.impl)
-	effort := spawn.ResolveEffort(opts.effort, opts.impl)
+	model := spawn.ResolveModel(opts.model, mode)
+	effort := spawn.ResolveEffort(opts.effort, mode)
 	fmt.Fprintf(os.Stderr, "  model: %s   effort: %s\n", orDefault(model), orDefault(effort))
 
 	if opts.printPrompt {
@@ -1479,7 +1490,7 @@ func runFollowup(d followupDeps, lane state.Lane, message string) error {
 		Worktree:      lane.Worktree,
 		Agent:         lane.Agent,
 		Model:         lane.Model,
-		Effort:        spawn.ResolveEffort("", mode == spawn.ModeImpl),
+		Effort:        spawn.ResolveEffort("", mode),
 		Mode:          lane.PromptMode,
 		PromptVersion: a.Version,
 		PromptHash:    a.Hash,
@@ -1645,11 +1656,13 @@ func laneFromSpec(spec spawn.LaneSpec) state.Lane {
 	}
 }
 
-// runningStatus is the lane's in-flight status for a spawn mode: impl runs at
-// StatusImpl, plan at StatusPlanning. Shared by the fresh-INSERT and the
-// followup re-spawn so both flip to the same running state.
+// runningStatus is the lane's in-flight status for a spawn mode: impl (and, for
+// now, orch) run at StatusImpl, plan at StatusPlanning. Shared by the
+// fresh-INSERT and the followup re-spawn so both flip to the same running state.
+// orch mirrors impl here to match its terminal mapping (STATUS.md → review);
+// an orch-specific in-flight/terminal state is a later scheduler-slice decision.
 func runningStatus(mode string) state.Status {
-	if mode == string(spawn.ModeImpl) {
+	if mode == string(spawn.ModeImpl) || mode == string(spawn.ModeOrch) {
 		return state.StatusImpl
 	}
 	return state.StatusPlanning

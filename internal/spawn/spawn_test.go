@@ -143,8 +143,8 @@ func TestAssembleMemoryFilePerProvider(t *testing.T) {
 
 // The provenance line matches `agent: <name> · prompt: <mode>.md @ <ver> (<hash>)`.
 func TestProvenanceFormat(t *testing.T) {
-	re := regexp.MustCompile(`^agent: \S+ · prompt: (plan|impl)\.md @ \S+ \([0-9a-f]{7}\)$`)
-	for _, mode := range []Mode{ModePlan, ModeImpl} {
+	re := regexp.MustCompile(`^agent: \S+ · prompt: (plan|impl|orch)\.md @ \S+ \([0-9a-f]{7}\)$`)
+	for _, mode := range []Mode{ModePlan, ModeImpl, ModeOrch} {
 		a, err := Assemble(mode, "claude", "CLAUDE.md", "x")
 		if err != nil {
 			t.Fatalf("Assemble(%s): %v", mode, err)
@@ -204,7 +204,12 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load plan.md: %v", err)
 	}
+	orch, err := loadPrompt(embedded, "prompts/orch.md")
+	if err != nil {
+		t.Fatalf("load orch.md: %v", err)
+	}
 	implS, planS := strings.ToLower(string(impl)), strings.ToLower(string(plan))
+	orchS := strings.ToLower(string(orch))
 
 	// impl mode: the gate + the never-background rule + writeback + placeholders.
 	for _, want := range []string{
@@ -239,6 +244,33 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 		}
 	}
 
+	// orch mode: the orchestrator role's load-bearing policy — never write code,
+	// decompose, delegate/gate via the bowt tools, the human-in-the-loop and
+	// stop-and-wait / land-is-owner-only invariants, escalation, checkpointing,
+	// plus writeback + placeholders.
+	for _, want := range []string{
+		"never write production code",
+		"decompose",
+		"bowt spawn",
+		"bowt gate",
+		"plan gate",
+		"never auto-fix",
+		"owner-only",
+		"escalate",
+		"stop-and-wait",
+		"human always in the loop",
+		"checkpoint",
+		"subagent/writeback",
+		"status.md",
+		"provenance",
+		"{{brief}}",
+		"{{memory_file}}",
+	} {
+		if !strings.Contains(orchS, want) {
+			t.Errorf("orch.md missing load-bearing clause %q", want)
+		}
+	}
+
 	// The prompts must stay single-source and provider-neutral: no literal
 	// CLAUDE.md may survive — a provider's memory file arrives via
 	// {{MEMORY_FILE}}, never hardcoded.
@@ -248,27 +280,36 @@ func TestEmbeddedPromptClausesSurvive(t *testing.T) {
 	if strings.Contains(planS, "claude.md") {
 		t.Error("plan.md names CLAUDE.md literally; use {{MEMORY_FILE}}")
 	}
+	if strings.Contains(orchS, "claude.md") {
+		t.Error("orch.md names CLAUDE.md literally; use {{MEMORY_FILE}}")
+	}
 }
 
 func TestResolveModelAndEffort(t *testing.T) {
 	tests := []struct {
 		model, effort string
-		impl          bool
+		mode          Mode
 		wantModel     string
 		wantEffort    string
 	}{
-		{"opus", "", false, "claude-opus-4-8", "high"},
-		{"sonnet", "medium", true, "claude-sonnet-5", "medium"},
-		{"", "", false, "claude-opus-4-8", "high"},           // plan defaults
-		{"", "", true, "", ""},                               // impl inherits session default
-		{"my-custom-model", "", true, "my-custom-model", ""}, // unknown passes through
+		// plan is planning-class: strong model + high effort by default.
+		{"opus", "", ModePlan, "claude-opus-4-8", "high"},
+		{"", "", ModePlan, "claude-opus-4-8", "high"}, // plan defaults
+		// impl inherits the session default (no strong-model / high-effort push).
+		{"sonnet", "medium", ModeImpl, "claude-sonnet-5", "medium"},
+		{"", "", ModeImpl, "", ""},                               // impl inherits session default
+		{"my-custom-model", "", ModeImpl, "my-custom-model", ""}, // unknown passes through
+		// orch is planning-class too: it resolves EXACTLY like plan.
+		{"", "", ModeOrch, "claude-opus-4-8", "high"},         // orch defaults == plan defaults
+		{"opus", "", ModeOrch, "claude-opus-4-8", "high"},     // alias still maps
+		{"sonnet", "low", ModeOrch, "claude-sonnet-5", "low"}, // explicit overrides still win
 	}
 	for _, tt := range tests {
-		if got := ResolveModel(tt.model, tt.impl); got != tt.wantModel {
-			t.Errorf("ResolveModel(%q,%v) = %q; want %q", tt.model, tt.impl, got, tt.wantModel)
+		if got := ResolveModel(tt.model, tt.mode); got != tt.wantModel {
+			t.Errorf("ResolveModel(%q,%v) = %q; want %q", tt.model, tt.mode, got, tt.wantModel)
 		}
-		if got := ResolveEffort(tt.effort, tt.impl); got != tt.wantEffort {
-			t.Errorf("ResolveEffort(%q,%v) = %q; want %q", tt.effort, tt.impl, got, tt.wantEffort)
+		if got := ResolveEffort(tt.effort, tt.mode); got != tt.wantEffort {
+			t.Errorf("ResolveEffort(%q,%v) = %q; want %q", tt.effort, tt.mode, got, tt.wantEffort)
 		}
 	}
 }

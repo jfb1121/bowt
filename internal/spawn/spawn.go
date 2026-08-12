@@ -25,7 +25,7 @@ import (
 // embedded ships the versioned prompt files inside the binary, so an installed
 // bowt carries its policy with it (no lookup relative to an install dir).
 //
-//go:embed prompts/plan.md prompts/impl.md prompts/VERSION
+//go:embed prompts/plan.md prompts/impl.md prompts/orch.md prompts/VERSION
 var embedded embed.FS
 
 // The substitution tokens. Keep it dumb — plain string replace, no templating
@@ -45,17 +45,34 @@ const (
 	ModePlan Mode = "plan"
 	// ModeImpl is the implementation wrapper (validate, implement, PR, STATUS.md).
 	ModeImpl Mode = "impl"
+	// ModeOrch is the orchestrator wrapper: the agent decomposes, delegates via
+	// `bowt spawn`, gates every lane, and escalates owner-only classes (land,
+	// scope, prod, money) to a human — it never writes production code. It is a
+	// planning-class mode (strong model + high effort, like ModePlan); the
+	// human-in-the-loop policy lives in prompts/orch.md.
+	ModeOrch Mode = "orch"
 )
 
-// File is the prompt filename for the mode ("plan.md" / "impl.md").
+// File is the prompt filename for the mode ("plan.md" / "impl.md" / "orch.md").
 func (m Mode) File() string { return string(m) + ".md" }
+
+// isPlanningClass reports whether the mode does high-level design/coordination
+// reasoning rather than implementation. Planning-class modes (plan and orch)
+// get the strongest model and high effort by default; impl does not. This is the
+// single predicate ResolveModel/ResolveEffort branch on, so plan and orch stay
+// in lockstep and impl's behaviour is untouched.
+func (m Mode) isPlanningClass() bool { return m == ModePlan || m == ModeOrch }
 
 // Label is the human description printed in the spawn header.
 func (m Mode) Label() string {
-	if m == ModeImpl {
+	switch m {
+	case ModeImpl:
 		return "impl"
+	case ModeOrch:
+		return "orchestrator"
+	default:
+		return "plan + writeback"
 	}
-	return "plan + writeback"
 }
 
 // loadPrompt reads name from fsys, treating a missing OR empty file as a hard
@@ -211,10 +228,11 @@ func isFile(p string) bool {
 	return err == nil && !fi.IsDir()
 }
 
-// ResolveModel maps model aliases to full IDs and applies the plan-mode default
-// (planning is design work, so it gets the strongest model unless overridden).
-// Unknown values pass through to the agent verbatim.
-func ResolveModel(model string, impl bool) string {
+// ResolveModel maps model aliases to full IDs and applies the planning-class
+// default (plan and orch are design/coordination work, so they get the strongest
+// model unless overridden; impl inherits the session default). Unknown values
+// pass through to the agent verbatim.
+func ResolveModel(model string, mode Mode) string {
 	switch model {
 	case "opus":
 		model = "claude-opus-4-8"
@@ -223,16 +241,17 @@ func ResolveModel(model string, impl bool) string {
 	case "haiku":
 		model = "claude-haiku-4-5-20251001"
 	}
-	if model == "" && !impl {
+	if model == "" && mode.isPlanningClass() {
 		model = "claude-opus-4-8"
 	}
 	return model
 }
 
-// ResolveEffort applies the plan-mode default (high effort for design work);
-// impl inherits the session default unless the orchestrator picks one.
-func ResolveEffort(effort string, impl bool) string {
-	if effort == "" && !impl {
+// ResolveEffort applies the planning-class default (high effort for plan and
+// orch design/coordination work); impl inherits the session default unless the
+// orchestrator picks one.
+func ResolveEffort(effort string, mode Mode) string {
+	if effort == "" && mode.isPlanningClass() {
 		effort = "high"
 	}
 	return effort
