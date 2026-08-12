@@ -71,6 +71,12 @@ func newFakeDescriptor(desc Descriptor) (descriptorAgent, *fakeRunner, *[]string
 		warnf: func(format string, args ...any) {
 			warns = append(warns, fmt.Sprintf(format, args...))
 		},
+		// The claude/codex reference descriptors this helper wraps stand in for
+		// the trusted built-ins, so stamp origin=builtin — otherwise the phase-4
+		// origin term in Caps would (correctly) zero SupportsHeadless and the
+		// claude headless/RequireHeadless/Caps mirror tests would fail. Drop-in
+		// origin is exercised separately in dropin_test.go.
+		origin: builtinOrigin(),
 	}
 	return a, fr, &warns
 }

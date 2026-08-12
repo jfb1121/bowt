@@ -126,7 +126,9 @@ func init() {
 	for name := range builtinPaths {
 		desc := builtins[name].desc
 		register(name, func(r runner, warnf func(string, ...any)) (Agent, error) {
-			return descriptorAgent{desc: desc, run: r, warnf: warnf}, nil
+			// Built-ins are trusted: stamp origin=builtin so newWith("claude")
+			// keeps SupportsHeadless=true (the origin term in Caps).
+			return descriptorAgent{desc: desc, run: r, warnf: warnf, origin: builtinOrigin()}, nil
 		})
 	}
 }

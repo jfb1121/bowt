@@ -14,16 +14,47 @@ import (
 // In this phase nothing wires descriptorAgent to the built-ins: New/newWith still
 // return the Go structs, and descriptorAgent is reachable only from tests.
 type descriptorAgent struct {
-	desc  Descriptor
-	run   runner
-	warnf func(string, ...any)
+	desc   Descriptor
+	run    runner
+	warnf  func(string, ...any)
+	origin Origin
 }
+
+// Origin records WHERE a descriptor's bytes came from — a loader-set, first-class
+// fact, NEVER read from the JSON (a drop-in must not be able to claim built-in
+// status by writing a field; see Descriptor, which deliberately has no origin).
+// The built-in loader stamps builtinOrigin(); the drop-in loader stamps
+// dropinOrigin(path). This is the trust boundary for headless: SupportsHeadless
+// AND-s isBuiltin() (Caps), so only a trusted, doctor-verifiable built-in can run
+// an unattended --dangerously-skip-permissions pass (RFC §5/§11 recommendation
+// (b), owner-approved).
+//
+// The zero value is NOT built-in, so anything that constructs a descriptorAgent
+// without an explicit origin FAILS CLOSED: no headless. path is the drop-in file
+// (empty for built-ins) — provenance for a later doctor/status line.
+type Origin struct {
+	builtin bool
+	path    string
+}
+
+// builtinOrigin marks a descriptor as a trusted, embedded built-in.
+func builtinOrigin() Origin { return Origin{builtin: true} }
+
+// dropinOrigin marks a descriptor as an untrusted user drop-in loaded from path.
+func dropinOrigin(path string) Origin { return Origin{path: path} }
+
+// isBuiltin reports whether the descriptor is a trusted built-in. The zero value
+// answers false — the fail-closed default.
+func (o Origin) isBuiltin() bool { return o.builtin }
 
 // Caps derives the static Capabilities from the descriptor. SupportsOneshot is
 // pure presence of an oneshot invocation; SupportsHooks is the declared hooks
 // flag; SupportsHeadless is the Go safety conjunction — a headless invocation
-// present AND hooks:true — so a descriptor cannot declare headless-eligibility
-// directly (see RequireHeadless / RFC §5). There is deliberately no
+// present AND hooks:true AND a built-in origin — so a descriptor cannot declare
+// headless-eligibility directly (see RequireHeadless / RFC §5) and a drop-in's
+// unverifiable hooks:true can never unlock an unattended run (RFC §11). This is
+// the ONE headless decision site and it fails closed (zero origin is not
+// built-in). There is deliberately no
 // SupportsEffort field on Capabilities: effort support is handled internally via
 // the presence of the effort render map (effortArgs), so this stays parity-safe
 // with the landed Capabilities struct.
@@ -37,7 +68,7 @@ func (a descriptorAgent) Caps() Capabilities {
 		MemoryFile:       a.desc.MemoryFile,
 		SupportsOneshot:  hasOneshot,
 		SupportsHooks:    a.desc.Hooks,
-		SupportsHeadless: hasHeadless && a.desc.Hooks,
+		SupportsHeadless: hasHeadless && a.desc.Hooks && a.origin.isBuiltin(),
 	}
 }
 
