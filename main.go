@@ -46,6 +46,12 @@ import (
 var version = "dev"
 
 func main() {
+	// Discover user drop-in providers (~/.bowt/agents/*.json) once at startup,
+	// AFTER package init has registered the built-ins, so a colliding drop-in is
+	// skipped (built-ins win) and provider selection sees the full set. Mirrors
+	// how the extension loader is wired from main; a missing dir is a no-op.
+	agent.LoadDropins(output.Errf)
+
 	root := newRootCmd()
 	// Git-style dispatch: if the first word is not a built-in command but the
 	// repo ships a matching extension, run it and exit with its code. Built-ins
