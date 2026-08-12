@@ -19,6 +19,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/jfb1121/bowt/internal/output"
 )
@@ -93,18 +95,57 @@ func New(name string) (Agent, error) {
 	return newWith(name, osRunner{}, output.Errf)
 }
 
+// factory builds a provider adapter with an injected process runner and warning
+// sink. Each provider registers one under its selector name; newWith looks it up
+// instead of switching on a hardcoded name.
+type factory func(r runner, warnf func(string, ...any)) (Agent, error)
+
+// registry maps a provider selector ("claude", "codex") to its factory. It is
+// populated by register() at package-init time — the database/sql driver
+// pattern — so adding a provider is a registration, not a new switch arm.
+var registry = map[string]factory{}
+
+// register adds a provider factory under name. It panics on a duplicate name
+// (as database/sql.Register does), so a drop-in provider colliding with a
+// built-in fails loudly at init rather than silently shadowing it.
+func register(name string, f factory) {
+	if _, dup := registry[name]; dup {
+		panic(fmt.Sprintf("agent: register called twice for %q", name))
+	}
+	registry[name] = f
+}
+
+func init() {
+	register("claude", func(r runner, warnf func(string, ...any)) (Agent, error) {
+		return claudeAgent{run: r, warnf: warnf}, nil
+	})
+	register("codex", func(r runner, warnf func(string, ...any)) (Agent, error) {
+		return codexAgent{run: r, warnf: warnf}, nil
+	})
+}
+
+// knownAgents returns the registered selector names sorted, so the unknown-name
+// error lists them deterministically — map iteration order is randomized, and
+// the sorted list reads "claude, codex" today.
+func knownAgents() []string {
+	names := make([]string, 0, len(registry))
+	for n := range registry {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // newWith builds a provider with an injected process runner and warning sink,
 // so tests exercise selection, argument construction, and knob-degradation
-// without launching a real CLI.
+// without launching a real CLI. An unknown name is a hard error listing the
+// registered providers (never a silent fallback to the default).
 func newWith(name string, r runner, warnf func(string, ...any)) (Agent, error) {
-	switch name {
-	case "claude":
-		return claudeAgent{run: r, warnf: warnf}, nil
-	case "codex":
-		return codexAgent{run: r, warnf: warnf}, nil
-	default:
-		return nil, fmt.Errorf("unknown agent %q (known: claude, codex)", name)
+	f, ok := registry[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown agent %q (known: %s)", name, strings.Join(knownAgents(), ", "))
 	}
+	return f(r, warnf)
 }
 
 // Select resolves the provider by precedence: an explicit --agent flag, then
