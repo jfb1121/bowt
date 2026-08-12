@@ -56,6 +56,22 @@ const (
 	EffortHigh   Effort = "high"
 )
 
+// efforts is the closed set of effort members, in canonical order. It is the
+// SINGLE definition of the Effort vocabulary — the doctor validator consults
+// isKnownEffort rather than restating {low,medium,high}, so the value check
+// cannot drift from the enum. effortArgs already keys off the same Effort type.
+var efforts = []Effort{EffortLow, EffortMedium, EffortHigh}
+
+// isKnownEffort reports whether e is a member of the Effort enum.
+func isKnownEffort(e Effort) bool {
+	for _, k := range efforts {
+		if e == k {
+			return true
+		}
+	}
+	return false
+}
+
 // Delivery is a small closed bowt-owned enum: how the prompt is passed to a
 // session/headless invocation.
 //
@@ -97,24 +113,41 @@ func render(list []string, v string) []string {
 	return out
 }
 
+// isLegalDelivery reports whether d is a prompt-delivery form bowt can render:
+// one of the two fixed forms, or "flag:<name>" with a non-empty flag name. It is
+// the SINGLE source of Delivery legality — both deliver() (runtime) and the
+// doctor validator (validateDescriptor) consult it, so a descriptor that passes
+// doctor can never fail in deliver(), and vice versa. Do not fork this rule.
+func isLegalDelivery(d Delivery) bool {
+	switch {
+	case d == DeliveryArgAfterDashDash, d == DeliveryArg:
+		return true
+	case strings.HasPrefix(string(d), deliveryFlagPrefix):
+		return strings.TrimPrefix(string(d), deliveryFlagPrefix) != ""
+	default:
+		return false
+	}
+}
+
 // deliver renders the prompt-delivery tail for a session/headless invocation.
 // An unknown or empty Delivery is a hard error: a session with no way to pass
-// the prompt is a malformed descriptor, not a silent no-op.
+// the prompt is a malformed descriptor, not a silent no-op. Legality is decided
+// by isLegalDelivery (shared with the validator); this only renders the tail.
 func deliver(d Delivery, prompt string) ([]string, error) {
-	switch {
-	case d == DeliveryArgAfterDashDash:
-		return []string{"--", prompt}, nil
-	case d == DeliveryArg:
-		return []string{prompt}, nil
-	case strings.HasPrefix(string(d), deliveryFlagPrefix):
-		flag := strings.TrimPrefix(string(d), deliveryFlagPrefix)
-		if flag == "" {
+	if !isLegalDelivery(d) {
+		if strings.HasPrefix(string(d), deliveryFlagPrefix) {
 			return nil, fmt.Errorf("agent descriptor: prompt delivery %q has an empty flag name", d)
 		}
-		return []string{flag, prompt}, nil
-	default:
 		return nil, fmt.Errorf("agent descriptor: unknown prompt delivery %q (want %q, %q, or %q)",
 			d, DeliveryArgAfterDashDash, DeliveryArg, "flag:<name>")
+	}
+	switch d {
+	case DeliveryArgAfterDashDash:
+		return []string{"--", prompt}, nil
+	case DeliveryArg:
+		return []string{prompt}, nil
+	default: // flag:<non-empty>, per isLegalDelivery
+		return []string{strings.TrimPrefix(string(d), deliveryFlagPrefix), prompt}, nil
 	}
 }
 
