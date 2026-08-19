@@ -64,7 +64,7 @@ func (e *waitEnv) setStatus(t *testing.T, id string, s state.Status) {
 
 func lane(id string, s state.Status) state.Lane {
 	return state.Lane{ID: id, Repo: "demo", Branch: id, Worktree: "/wt/" + id,
-		Status: s, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir}
+		Status: s, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir, Created: time.Now().Add(-time.Hour)}
 }
 
 func viewByID(rows []laneView) map[string]laneView {
@@ -102,7 +102,7 @@ func TestRunLaneWaitDeadSupervisorNoHang(t *testing.T) {
 	e := newWaitEnv(t)
 	wt := worktreeWithArtifact(t, "STATUS.md") // impl finished; supervisor died
 	e.add(t, state.Lane{ID: "dead", Repo: "demo", Branch: "dead", Worktree: wt,
-		Status: state.StatusImpl, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir})
+		Status: state.StatusImpl, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir, Created: time.Now().Add(-time.Hour)})
 	// probe leaves /wt free (not in held map) → reconcileForRead reads files.
 
 	rows, err := runLaneWait(e.deps(), []string{"dead"}, 0, time.Second)
@@ -147,7 +147,7 @@ func TestRunLaneWaitWaitsForAll(t *testing.T) {
 	e := newWaitEnv(t)
 	wtA := worktreeWithArtifact(t, "STATUS.md")
 	e.add(t, state.Lane{ID: "a", Repo: "demo", Branch: "a", Worktree: wtA,
-		Status: state.StatusImpl, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir})
+		Status: state.StatusImpl, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir, Created: time.Now().Add(-time.Hour)})
 	e.add(t, lane("b", state.StatusImpl))
 	e.held["/wt/b"] = true // b's lock held; settles via DB flip on sleep
 	e.onSleep = func(e *waitEnv) { e.setStatus(t, "b", state.StatusDone) }

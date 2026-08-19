@@ -833,15 +833,21 @@ type laneView struct {
 	Branch         string       `json:"branch"`
 	Worktree       string       `json:"worktree"`
 	Reconciled     bool         `json:"reconciled,omitempty"`
+	// LockHeld is the live signal, reported alongside the recorded phase so a
+	// reader can catch the one inconsistency the phase alone cannot express:
+	// a running status (planning/impl/review) with no lock held means the
+	// supervisor is gone and the row has not been healed yet — which is what
+	// makes a finished lane read as still working.
+	LockHeld bool `json:"lock_held"`
 }
 
-func toLaneView(l state.Lane, reconciled bool) laneView {
+func toLaneView(l state.Lane, reconciled bool, lockHeld bool) laneView {
 	return laneView{
 		ID: l.ID, Ticket: l.Ticket, Status: l.Status, Agent: l.Agent, Model: l.Model,
 		Attempt: l.Attempt, Wave: l.Wave, GateVerdict: l.GateVerdict,
 		ReviewBlockers: l.ReviewBlockers, ReviewMajors: l.ReviewMajors, ReviewMinors: l.ReviewMinors,
 		Escalated: l.Escalated, PausedOn: l.PausedOn, Branch: l.Branch, Worktree: l.Worktree,
-		Reconciled: reconciled,
+		Reconciled: reconciled, LockHeld: lockHeld,
 	}
 }
 
@@ -864,22 +870,23 @@ type worktreeView struct {
 // lock is FREE, reconstructs the terminal state from files (spawn.ParseComms +
 // the pure reconcile decision). It only READS; the caller persists a change
 // (self-heal). Returns the (possibly corrected) lane and whether it changed.
-func reconcileForRead(lane state.Lane, probe func(string) (bool, error)) (state.Lane, bool, error) {
+func reconcileForRead(lane state.Lane, probe func(string) (bool, error)) (state.Lane, bool, bool, error) {
 	held, err := probe(lane.Worktree)
 	if err != nil {
-		return lane, false, err
+		return lane, false, false, err
 	}
 	if held || !isRunning(lane.Status) {
-		return lane, false, nil // live lane or already terminal: no file read needed
+		return lane, false, held, nil // live lane or already terminal: no file read needed
 	}
 	comms, err := spawn.ParseComms(
 		filepath.Join(lane.Worktree, lane.WritebackDir),
 		filepath.Join(lane.Worktree, review.ReviewDirName),
 	)
 	if err != nil {
-		return lane, false, err
+		return lane, false, false, err
 	}
-	return reconcile(lane, held, comms)
+	fixed, changed, rerr := reconcile(lane, held, comms)
+	return fixed, changed, held, rerr
 }
 
 // reconcileLaneViews reconciles each lane at read time, SELF-HEALS a corrected
@@ -891,7 +898,7 @@ func reconcileForRead(lane state.Lane, probe func(string) (bool, error)) (state.
 func reconcileLaneViews(ls state.LaneStore, lanes []state.Lane, probe func(string) (bool, error)) ([]laneView, error) {
 	views := make([]laneView, 0, len(lanes))
 	for _, lane := range lanes {
-		fixed, changed, err := reconcileForRead(lane, probe)
+		fixed, changed, held, err := reconcileForRead(lane, probe)
 		if err != nil {
 			return nil, err
 		}
@@ -900,7 +907,7 @@ func reconcileLaneViews(ls state.LaneStore, lanes []state.Lane, probe func(strin
 				return nil, err
 			}
 		}
-		views = append(views, toLaneView(fixed, changed))
+		views = append(views, toLaneView(fixed, changed, held))
 	}
 	return views, nil
 }
@@ -996,7 +1003,7 @@ func runLaneWait(deps laneWaitDeps, ids []string, timeout, interval time.Duratio
 			if !ok {
 				return nil, fmt.Errorf("unknown lane %q", id)
 			}
-			fixed, changed, err := reconcileForRead(lane, deps.probe)
+			fixed, changed, held, err := reconcileForRead(lane, deps.probe)
 			if err != nil {
 				return nil, err
 			}
@@ -1005,7 +1012,7 @@ func runLaneWait(deps laneWaitDeps, ids []string, timeout, interval time.Duratio
 					return nil, err
 				}
 			}
-			views[id] = toLaneView(fixed, changed)
+			views[id] = toLaneView(fixed, changed, held)
 			if isInFlight(fixed.Status) {
 				stillPending = append(stillPending, id)
 			}
@@ -1738,7 +1745,7 @@ func runSupervisor(ls state.LaneStore, ag agent.Agent, spec spawn.LaneSpec, acqu
 	// reconstructs the terminal status from files + the now-free lock. Out of
 	// scope for G2 — no daemon.)
 	writebackDir := filepath.Join(spec.Worktree, spec.WritebackDir)
-	status, err := spawn.TerminalStatus(spec.Mode, exitCode, writebackDir)
+	status, err := spawn.TerminalStatus(spec.Mode, exitCode, writebackDir, lane.Created)
 	if err != nil {
 		return err
 	}
@@ -1882,7 +1889,7 @@ func reconcile(lane state.Lane, lockHeld bool, comms spawn.Comms) (state.Lane, b
 	if lockHeld || !isRunning(lane.Status) {
 		return lane, false, nil
 	}
-	base, err := spawn.ArtifactStatus(lane.PromptMode, filepath.Join(lane.Worktree, lane.WritebackDir))
+	base, err := spawn.ArtifactStatus(lane.PromptMode, filepath.Join(lane.Worktree, lane.WritebackDir), lane.Created)
 	if err != nil {
 		return lane, false, err
 	}

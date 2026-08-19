@@ -255,6 +255,8 @@ func TestSupervisorReusesExistingRow(t *testing.T) {
 	// Pre-seed the row as a followup would have: attempt bumped, status running.
 	pre := laneFromSpec(spec)
 	pre.Attempt = 2
+	// The row predates the writeback, as it does in production.
+	pre.Created = time.Now().Add(-time.Hour)
 	if err := ls.AddLane(pre); err != nil {
 		t.Fatal(err)
 	}

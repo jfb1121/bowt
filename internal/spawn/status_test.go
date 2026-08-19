@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jfb1121/bowt/internal/state"
 )
@@ -49,7 +50,7 @@ func TestTerminalStatus(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := TerminalStatus(tt.mode, tt.exitCode, wb)
+			got, err := TerminalStatus(tt.mode, tt.exitCode, wb, time.Time{})
 			if err != nil {
 				t.Fatalf("TerminalStatus: %v", err)
 			}
@@ -66,7 +67,7 @@ func TestTerminalStatusIgnoresDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(wb, "STATUS.md"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, err := TerminalStatus("impl", 0, wb)
+	got, err := TerminalStatus("impl", 0, wb, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,47 @@ func TestTerminalStatusIgnoresDir(t *testing.T) {
 
 // An unknown mode is a hard error, not a silent status.
 func TestTerminalStatusUnknownMode(t *testing.T) {
-	if _, err := TerminalStatus("review", 0, t.TempDir()); err == nil {
+	if _, err := TerminalStatus("review", 0, t.TempDir(), time.Time{}); err == nil {
 		t.Fatal("unknown mode should error")
+	}
+}
+
+// A worktree is routinely reused, so its writeback directory often still holds
+// the PREVIOUS occupant's artifact. Presence alone therefore reported a lane as
+// review/plan-review — a completed run — even when its agent died having written
+// nothing, which is a fabricated success and the opposite of what this file
+// promises. An artifact older than the lane must read as absent.
+func TestArtifactStatusIgnoresAPreviousOccupantsArtifact(t *testing.T) {
+	wb := t.TempDir()
+	stale := filepath.Join(wb, "STATUS.md")
+	if err := os.WriteFile(stale, []byte("someone else's run"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	laneStart := time.Now().Add(-time.Minute)
+
+	got, err := ArtifactStatus("impl", wb, laneStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != state.StatusFailed {
+		t.Fatalf("stale artifact counted as this lane's work: got %q, want %q", got, state.StatusFailed)
+	}
+
+	// The lane's own artifact, written after it started, still counts.
+	fresh := time.Now()
+	if err := os.Chtimes(stale, fresh, fresh); err != nil {
+		t.Fatal(err)
+	}
+	got, err = ArtifactStatus("impl", wb, laneStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != state.StatusReview {
+		t.Fatalf("the lane's own artifact was rejected: got %q, want %q", got, state.StatusReview)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jfb1121/bowt/internal/state"
 )
@@ -24,11 +25,11 @@ import (
 //
 // The ESCALATE/PAUSE scan over the artifact bodies is deferred to G3; this
 // function only decides the phase from exit + presence.
-func TerminalStatus(mode string, exitCode int, writebackDir string) (state.Status, error) {
+func TerminalStatus(mode string, exitCode int, writebackDir string, since time.Time) (state.Status, error) {
 	if exitCode != 0 {
 		return state.StatusFailed, nil
 	}
-	return ArtifactStatus(mode, writebackDir)
+	return ArtifactStatus(mode, writebackDir, since)
 }
 
 // ArtifactStatus is the FILE-PRESENCE half of the completion contract: the
@@ -46,10 +47,10 @@ func TerminalStatus(mode string, exitCode int, writebackDir string) (state.Statu
 // It is conservative by construction: it never yields `done` or a `pass` verdict
 // — the absence of the expected artifact is a `failed`, so a reconciler built on
 // it cannot fabricate success for a lane whose agent died mid-run.
-func ArtifactStatus(mode string, writebackDir string) (state.Status, error) {
+func ArtifactStatus(mode string, writebackDir string, since time.Time) (state.Status, error) {
 	switch Mode(mode) {
 	case ModePlan:
-		if fileExists(filepath.Join(writebackDir, "PLAN.md")) {
+		if freshFile(filepath.Join(writebackDir, "PLAN.md"), since) {
 			return state.StatusPlanReview, nil
 		}
 		return state.StatusFailed, nil
@@ -58,7 +59,7 @@ func ArtifactStatus(mode string, writebackDir string) (state.Status, error) {
 		// Orch-specific terminal semantics (done-when-children-done, driven by the
 		// wave/deps scheduler) is a later scheduler-slice decision; until that lands
 		// an orchestrator writeback follows the same file-presence contract as impl.
-		if fileExists(filepath.Join(writebackDir, "STATUS.md")) {
+		if freshFile(filepath.Join(writebackDir, "STATUS.md"), since) {
 			return state.StatusReview, nil
 		}
 		return state.StatusFailed, nil
@@ -67,8 +68,25 @@ func ArtifactStatus(mode string, writebackDir string) (state.Status, error) {
 	}
 }
 
-// fileExists reports whether p is an existing regular file (not a directory).
-func fileExists(p string) bool {
+// freshFile reports whether p is an existing regular file THIS lane produced —
+// a regular file (not a directory) last modified no earlier than since, which
+// callers set to the lane's creation time.
+//
+// The mtime half is not belt-and-braces, it is the whole point. Worktrees are
+// reused, so a writeback directory routinely still holds the previous
+// occupant's PLAN.md/STATUS.md. Bare existence therefore reports a lane as
+// plan-review/review — a COMPLETED run — even when its agent died in its first
+// second having written nothing. That is a fabricated success, and it is
+// exactly what this function's callers promise cannot happen. An artifact older
+// than the lane belongs to someone else, so it reads as absent and the lane
+// lands `failed`, which is the truthful answer.
+//
+// A zero `since` disables the check, so a caller with no start time keeps the
+// old presence-only behaviour rather than silently failing every lane.
+func freshFile(p string, since time.Time) bool {
 	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	return since.IsZero() || !fi.ModTime().Before(since)
 }

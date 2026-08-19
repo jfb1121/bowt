@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jfb1121/bowt/internal/spawn"
 	"github.com/jfb1121/bowt/internal/state"
@@ -58,8 +59,12 @@ func TestReconcileLaneViewsSelfHeals(t *testing.T) {
 	live := worktreeWithArtifact(t, "STATUS.md")   // impl still running (lock held)
 
 	mk := func(id, wt string, s state.Status) state.Lane {
+		// Created predates the artifact, as it does in production: the
+		// supervisor publishes the lane row before the agent runs, so a
+		// writeback is always newer than the lane that produced it.
 		return state.Lane{ID: id, Repo: "demo", Branch: id, Worktree: wt,
-			Status: s, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir}
+			Status: s, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir,
+			Created: time.Now().Add(-time.Hour)}
 	}
 	for _, l := range []state.Lane{
 		mk("orphan", orphan, state.StatusImpl),
@@ -128,6 +133,7 @@ func TestCmdStatusJoinsAndProjects(t *testing.T) {
 	if err := ls.AddLane(state.Lane{
 		ID: "lane-1", Repo: "demo", Branch: "slice/laned", Worktree: laned,
 		Status: state.StatusImpl, PromptMode: "impl", WritebackDir: spawn.DefaultWritebackDir,
+		Created: time.Now().Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
