@@ -1,6 +1,9 @@
 package lock
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestExclusiveAndReacquire(t *testing.T) {
 	// Override HOME so the lockfile lands in a throwaway dir, not real ~/.bowt.
@@ -102,4 +105,44 @@ func TestSharedCoexistsButYieldsToExclusive(t *testing.T) {
 		t.Fatal("shared acquire should fail while exclusive held")
 	}
 	_ = ex.Release()
+}
+
+// A descendant of a lock holder must be able to proceed on the same key —
+// otherwise a spawn lane cannot run its own test/gate/review, which is the bug
+// this pass exists to fix. The negative half matters just as much: without the
+// exported key the acquire must still fail, or the pass would be a hole.
+func TestAcquireReentrantHonoursAnAncestorsExportedKey(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "wt")
+
+	held, err := Acquire(key)
+	if err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+	defer func() { _ = held.Release() }()
+
+	if _, err := AcquireReentrant(key); err == nil {
+		t.Fatal("reentrant acquire succeeded with no exported key — the pass is not scoped")
+	}
+
+	t.Setenv(EnvHeld, key)
+
+	l, err := AcquireReentrant(key)
+	if err != nil {
+		t.Fatalf("reentrant acquire with the key exported: %v", err)
+	}
+	// Releasing the descendant's sentinel must NOT drop the ancestor's lock.
+	if err := l.Release(); err != nil {
+		t.Fatalf("release sentinel: %v", err)
+	}
+	if _, err := Acquire(key); err == nil {
+		t.Fatal("ancestor's lock was dropped by the descendant's Release")
+	}
+
+	// A different key must still lock normally even while one key is passed.
+	other := filepath.Join(t.TempDir(), "other")
+	l2, err := AcquireReentrant(other)
+	if err != nil {
+		t.Fatalf("unrelated key should acquire normally: %v", err)
+	}
+	_ = l2.Release()
 }

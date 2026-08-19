@@ -20,6 +20,54 @@ type Lock struct {
 	f *os.File
 }
 
+// EnvHeld names the environment variable a lock holder exports so its own
+// descendants can tell that the lock is already held on their behalf. Its value
+// is the lock key (a worktree path), so the pass is scoped to that one key.
+const EnvHeld = "BOWT_LOCK_HELD"
+
+// HeldByAncestor reports whether an ancestor of this process already holds the
+// lock for key and exported EnvHeld to say so.
+//
+// This exists because flock is owned by an open file description, not by a
+// process tree: a child can never take a lock its parent holds, and a
+// non-blocking acquire fails immediately rather than waiting. A spawn
+// supervisor holds the worktree lock for the whole life of the agent it runs,
+// so without this the agent could not run `bowt test`, `bowt gate` or
+// `bowt review` inside its own lane — every one would report the worktree busy
+// against its own supervisor. Matching on the key (rather than a bare boolean)
+// keeps the pass narrow: a lane working in worktree A still locks normally when
+// it reaches into worktree B.
+func HeldByAncestor(key string) bool {
+	return key != "" && os.Getenv(EnvHeld) == key
+}
+
+// ExportHeld records key in the current process's environment so descendants
+// see it via HeldByAncestor. Callers do this immediately after a successful
+// Acquire whose lifetime spans a child process.
+func ExportHeld(key string) error {
+	return os.Setenv(EnvHeld, key)
+}
+
+// AcquireReentrant behaves like Acquire, except that when an ancestor already
+// holds key it returns a Lock that owns no file descriptor. Release on such a
+// Lock is a no-op, so the real lock stays held by the ancestor for its full
+// lifetime and a deferred Release in the descendant cannot drop it early.
+func AcquireReentrant(key string) (*Lock, error) {
+	if HeldByAncestor(key) {
+		return &Lock{}, nil
+	}
+	return Acquire(key)
+}
+
+// AcquireSharedReentrant is AcquireShared with the same ancestor pass as
+// AcquireReentrant.
+func AcquireSharedReentrant(key string) (*Lock, error) {
+	if HeldByAncestor(key) {
+		return &Lock{}, nil
+	}
+	return AcquireShared(key)
+}
+
 // Acquire takes an exclusive, NON-BLOCKING lock keyed on key (a branch or a
 // worktree path). If another process holds it, Acquire fails immediately rather
 // than waiting — the "fail fast and say it's busy" contract.

@@ -1703,6 +1703,16 @@ func runSupervisor(ls state.LaneStore, ag agent.Agent, spec spawn.LaneSpec, acqu
 	}
 	defer func() { _ = l.Release() }()
 
+	// Tell our descendants the worktree lock is already held on their behalf.
+	// The agent we are about to run is a child, so it inherits this — and so do
+	// the `bowt test`/`gate`/`review` calls it makes. Without it a lane cannot
+	// run its own verification: flock belongs to an open file description, not a
+	// process tree, so the agent's acquire would fail fast against its own
+	// supervisor and report the worktree busy.
+	if err := lock.ExportHeld(spec.Worktree); err != nil {
+		output.Errf("could not export %s: %v — the agent's own bowt calls may report the worktree busy", lock.EnvHeld, err)
+	}
+
 	lane, err := publishRunning(ls, spec)
 	if err != nil {
 		return err
@@ -1940,7 +1950,9 @@ func cmdGate(st state.Store, scope string) error {
 	// held for the whole run. Fail fast with the busy message if another bowt
 	// process holds it. The kernel also releases flock on process exit, so the
 	// os.Exit below (mirroring the verdict) never leaks the lock.
-	l, err := lock.Acquire(top)
+	// Reentrant: a spawned lane must be able to gate its own work, and its
+	// supervisor already holds this key (see lock.HeldByAncestor).
+	l, err := lock.AcquireReentrant(top)
 	if err != nil {
 		return err
 	}
@@ -2352,7 +2364,8 @@ func cmdReview(st state.Store, opts reviewOpts) error {
 
 	// EXCLUSIVE per-worktree lock: review WRITES the tree (.bowt-review/). Held
 	// for the whole run; the kernel releases flock on exit so os.Exit never leaks it.
-	l, err := lock.Acquire(top)
+	// Reentrant so a spawned lane can review its own diff (see lock.HeldByAncestor).
+	l, err := lock.AcquireReentrant(top)
 	if err != nil {
 		return err
 	}
@@ -2574,13 +2587,13 @@ func cmdExtension(main string, ext extension.Extension, args []string) (int, err
 	// the propagated code never leaks it (the kernel also frees flock on exit).
 	switch ext.Manifest.Lock {
 	case extension.LockExclusive:
-		l, lerr := lock.Acquire(top)
+		l, lerr := lock.AcquireReentrant(top)
 		if lerr != nil {
 			return 1, lerr
 		}
 		defer func() { _ = l.Release() }()
 	case extension.LockShared:
-		l, lerr := lock.AcquireShared(top)
+		l, lerr := lock.AcquireSharedReentrant(top)
 		if lerr != nil {
 			return 1, lerr
 		}
