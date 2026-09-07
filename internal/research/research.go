@@ -146,6 +146,10 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (*Result, error) {
 // diagnostic only: the postcondition (did a findings file land?) is checked from
 // disk by the caller, so a failed agent is simply a task with no output.
 func (r *Runner) runOne(ctx context.Context, t Task) {
+	// Clear any stale findings file from a prior run into the same out dir, so the
+	// postcondition "did THIS agent write?" is decided by existence — not by a
+	// leftover file a failed agent would otherwise inherit as a false success.
+	_ = os.Remove(t.OutPath)
 	if err := r.Launch(ctx, t); err != nil {
 		r.logf("  FAILED: %s — %v (see %s)", t.ID, err, t.LogPath)
 		return
@@ -163,6 +167,9 @@ func (r *Runner) synthesize(ctx context.Context, res *Result) bool {
 	r.logf("==> Synthesizing %d finding(s)...", len(res.Written))
 	outPath := filepath.Join(r.OutDir, SynthesisFile)
 	logPath := filepath.Join(r.OutDir, "synthesis.log")
+	// Clear a stale SYNTHESIS.md so a synthesis agent that fails or writes nothing
+	// cannot be scored a success off a prior run's leftover file.
+	_ = os.Remove(outPath)
 	t := r.SynthTask(res.Written, outPath, logPath)
 	if err := r.Launch(ctx, t); err != nil {
 		r.logf("  FAILED: synthesis — %v (see %s)", err, logPath)

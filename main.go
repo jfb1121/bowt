@@ -2518,10 +2518,24 @@ func cmdResearch(opts researchOpts) error {
 	}
 	caps := ag.Caps()
 
+	// A brief and --queries are conflicting fan-out sources: --queries would
+	// silently discard the brief. Refuse rather than drop it.
+	if opts.queries != "" && opts.brief != "" {
+		return fmt.Errorf("pass either a brief or --queries, not both")
+	}
+
 	// Fan-out: --queries (one agent per line) wins over the single brief + --n.
 	briefs, source, err := researchBriefs(top, opts)
 	if err != nil {
 		return err
+	}
+
+	// Floor the concurrency to the OOM-guard default up front, so the header, the
+	// --dry-run plan, and the runner all report and enforce the SAME bound (a <=0
+	// value runs at DefaultConcurrency, not "0").
+	concurrency := opts.concurrency
+	if concurrency <= 0 {
+		concurrency = research.DefaultConcurrency
 	}
 
 	model := spawn.ResolveModel(opts.model, spawn.ModeResearch)
@@ -2543,7 +2557,7 @@ func cmdResearch(opts researchOpts) error {
 		if aerr != nil {
 			return aerr
 		}
-		id := research.TaskID(i)
+		id := research.TaskID(i, len(briefs))
 		outPath := filepath.Join(outDir, id+".md")
 		tasks[i] = research.Task{
 			ID:      id,
@@ -2555,13 +2569,13 @@ func cmdResearch(opts researchOpts) error {
 
 	output.Errf("research → %s", top)
 	fmt.Fprintf(os.Stderr, "  source: %s   agents: %d   concurrency: %d   agent: %s\n",
-		source, len(tasks), opts.concurrency, caps.Name)
+		source, len(tasks), concurrency, caps.Name)
 	fmt.Fprintf(os.Stderr, "  out: %s   model: %s   effort: %s   synthesize: %t\n",
 		outDir, orDefault(model), orDefault(effort), opts.synthesize)
 
 	// Dry-run: print the plan (what would launch) and stop — no agents, no writes.
 	if opts.dryRun {
-		plan := researchPlan{OutDir: outDir, Concurrency: opts.concurrency, Synthesize: opts.synthesize}
+		plan := researchPlan{OutDir: outDir, Concurrency: concurrency, Synthesize: opts.synthesize}
 		for _, t := range tasks {
 			plan.Tasks = append(plan.Tasks, researchTaskPlan{ID: t.ID, OutPath: t.OutPath})
 		}
@@ -2570,7 +2584,7 @@ func cmdResearch(opts researchOpts) error {
 
 	r := &research.Runner{
 		OutDir:      outDir,
-		Concurrency: opts.concurrency,
+		Concurrency: concurrency,
 		Launch:      headlessLauncher(ag, model, effort),
 		Synthesize:  opts.synthesize,
 		SynthTask: func(paths []string, outPath, logPath string) research.Task {
@@ -2628,7 +2642,9 @@ func readQueryLines(path string) ([]string, error) {
 // substitute a fake Launch instead.
 func headlessLauncher(ag agent.Agent, model, effort string) research.Launch {
 	return func(ctx context.Context, t research.Task) error {
-		lf, err := os.OpenFile(t.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		// Truncate, don't append: a re-run into the same out dir must give this
+		// agent a fresh log, not blend its stream beneath a prior run's output.
+		lf, err := os.OpenFile(t.LogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
 			return fmt.Errorf("open research log %s: %w", t.LogPath, err)
 		}

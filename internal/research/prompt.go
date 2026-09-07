@@ -2,6 +2,7 @@ package research
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -27,10 +28,16 @@ func TaskBriefs(brief string, queries []string, n int) []string {
 	return out
 }
 
-// TaskID is the findings filename stem for the i-th agent (zero-based), e.g.
-// "r01". Zero-padded to two digits so a directory listing sorts in launch order.
-func TaskID(i int) string {
-	return fmt.Sprintf("r%02d", i+1)
+// TaskID is the findings filename stem for the i-th agent (zero-based) in a
+// fan-out of total agents, e.g. "r01". Zero-padded to the width of total (min
+// two digits) so a directory listing sorts in launch order at any fan-out size —
+// "r009" before "r010" for a 15-agent run, not "r10" before "r9".
+func TaskID(i, total int) string {
+	width := len(strconv.Itoa(total))
+	if width < 2 {
+		width = 2
+	}
+	return fmt.Sprintf("r%0*d", width, i+1)
 }
 
 // SynthesisPrompt builds the prompt for the final synthesis agent: read every

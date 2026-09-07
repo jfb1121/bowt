@@ -69,7 +69,7 @@ func newRunner(t *testing.T, f *fakeLauncher) *Runner {
 func tasks(r *Runner, n int) []Task {
 	ts := make([]Task, n)
 	for i := 0; i < n; i++ {
-		id := TaskID(i)
+		id := TaskID(i, n)
 		ts[i] = Task{
 			ID:      id,
 			Prompt:  "research " + id,
@@ -100,6 +100,47 @@ func TestTaskBriefsFanOut(t *testing.T) {
 	got := TaskBriefs("b", q, 5)
 	if len(got) != 2 || got[0] != "query one" || got[1] != "query two" {
 		t.Fatalf("queries must win over n and pass through verbatim, got %v", got)
+	}
+}
+
+// TaskID zero-pads to the width of the fan-out (min two) so a directory listing
+// sorts in launch order at any size.
+func TestTaskIDWidth(t *testing.T) {
+	if got := TaskID(0, 3); got != "r01" {
+		t.Fatalf("TaskID(0,3) = %q, want r01", got)
+	}
+	if got := TaskID(9, 100); got != "r010" {
+		t.Fatalf("TaskID(9,100) = %q, want r010 (sorts before r100)", got)
+	}
+	if got := TaskID(99, 100); got != "r100" {
+		t.Fatalf("TaskID(99,100) = %q, want r100", got)
+	}
+}
+
+// A stale findings file from a prior run into the same out dir must NOT be
+// counted as this run's success when this run's agent writes nothing: runOne
+// clears the target first, so existence is a true per-run postcondition.
+func TestRunClearsStaleFindings(t *testing.T) {
+	f := &fakeLauncher{write: false} // this run's agent writes nothing
+	r := newRunner(t, f)
+	if err := os.MkdirAll(r.OutDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ts := tasks(r, 1)
+	// Seed a leftover findings file at the task's out path.
+	if err := os.WriteFile(ts[0].OutPath, []byte("STALE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := r.Run(context.Background(), ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Written) != 0 || len(res.Missing) != 1 {
+		t.Fatalf("stale file must not count as written: Written=%v Missing=%v", res.Written, res.Missing)
+	}
+	if _, statErr := os.Stat(ts[0].OutPath); statErr == nil {
+		t.Fatalf("stale findings file should have been cleared")
 	}
 }
 
