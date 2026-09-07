@@ -143,8 +143,8 @@ func TestAssembleMemoryFilePerProvider(t *testing.T) {
 
 // The provenance line matches `agent: <name> · prompt: <mode>.md @ <ver> (<hash>)`.
 func TestProvenanceFormat(t *testing.T) {
-	re := regexp.MustCompile(`^agent: \S+ · prompt: (plan|impl|orch)\.md @ \S+ \([0-9a-f]{7}\)$`)
-	for _, mode := range []Mode{ModePlan, ModeImpl, ModeOrch} {
+	re := regexp.MustCompile(`^agent: \S+ · prompt: (plan|impl|orch|research)\.md @ \S+ \([0-9a-f]{7}\)$`)
+	for _, mode := range []Mode{ModePlan, ModeImpl, ModeOrch, ModeResearch} {
 		a, err := Assemble(mode, "claude", "CLAUDE.md", "x")
 		if err != nil {
 			t.Fatalf("Assemble(%s): %v", mode, err)

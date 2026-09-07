@@ -25,7 +25,7 @@ import (
 // embedded ships the versioned prompt files inside the binary, so an installed
 // bowt carries its policy with it (no lookup relative to an install dir).
 //
-//go:embed prompts/plan.md prompts/impl.md prompts/orch.md prompts/VERSION
+//go:embed prompts/plan.md prompts/impl.md prompts/orch.md prompts/research.md prompts/VERSION
 var embedded embed.FS
 
 // The substitution tokens. Keep it dumb — plain string replace, no templating
@@ -51,7 +51,19 @@ const (
 	// planning-class mode (strong model + high effort, like ModePlan); the
 	// human-in-the-loop policy lives in prompts/orch.md.
 	ModeOrch Mode = "orch"
+	// ModeResearch is the research wrapper: the agent does web research with
+	// WebSearch/WebFetch, cites sources, and writes ONE findings file to a
+	// per-agent out path ({{OUT_FILE}}) — it never modifies the repo. It is the
+	// wrapper `bowt research` fans out. Not planning-class: research inherits the
+	// session default model unless the caller overrides it (a research fan-out is
+	// many agents, so it stays cheap by default). Policy lives in prompts/research.md.
+	ModeResearch Mode = "research"
 )
+
+// OutFilePlaceholder is the token research.md carries for the per-agent findings
+// path. Assemble leaves it intact (it only substitutes {{BRIEF}}/{{MEMORY_FILE}}),
+// so `bowt research` fills it in per agent. Kept in lockstep with prompts/research.md.
+const OutFilePlaceholder = "{{OUT_FILE}}"
 
 // File is the prompt filename for the mode ("plan.md" / "impl.md" / "orch.md").
 func (m Mode) File() string { return string(m) + ".md" }
@@ -70,6 +82,8 @@ func (m Mode) Label() string {
 		return "impl"
 	case ModeOrch:
 		return "orchestrator"
+	case ModeResearch:
+		return "research"
 	default:
 		return "plan + writeback"
 	}

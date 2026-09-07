@@ -45,6 +45,24 @@ bowt rm feature/login        # teardown + deregister
 bowt version                 # build version
 ```
 
+Agent fan-out:
+
+```bash
+bowt spawn --impl brief.md               # one headless coding agent against a brief
+bowt review --all                        # perspective code review of the diff
+bowt research brief.md --n 3             # fan out 3 headless research agents (web research)
+bowt research --queries topics.txt       # one research agent per query line
+bowt research brief.md --n 5 --synthesize --concurrency 2
+```
+
+`bowt research` is spawn for *research* rather than code: it fans headless agents
+(the same subscription-powered child-process path as `spawn`) over web-research
+tasks, each writing a cited findings file under `--out` (default `research-out/`)
+— no gate, no commit, no PR. At most `--concurrency` agents run at once (default
+2; the host OOMs past a handful), and `--synthesize` adds a final agent that
+merges the findings into `SYNTHESIS.md`. `--dry-run` prints the plan without
+launching anything.
+
 ## Development
 
 ```bash
