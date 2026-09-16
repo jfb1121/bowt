@@ -103,9 +103,10 @@ for conventions.
 ## Layout
 
 ```
-*.go (package main) one file per command group (new · spawn · lanes · land ·
-                    gate · review · research · cockpit · worktree · meta) + dispatch
+main.go             thin entry point — hands off to internal/cli
 internal/           compiler-private core — importable only within this module
+  cli/              the command tree (one file per group: new · spawn · lanes ·
+                    land · gate · review · research · cockpit · worktree · meta)
   state/            worktree + lane registry (SQLite, behind a Store interface)
   repo/             git operations via os/exec
   lock/             exclusive per-worktree lock via flock(2)
