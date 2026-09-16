@@ -11,9 +11,9 @@ coding agents in parallel. Agent-first: every command speaks JSON when piped, so
 an agent drives bowt exactly the way you do.
 
 **The tour** — isolation, the command center, and the Plan → Impl → Review →
-Gate → PR pipeline ([26s, with sound](docs/brag.mp4)):
+Gate → PR pipeline (26s, with sound):
 
-![bowt — a bunch of worktrees](docs/brag.gif)
+<video src="https://github.com/jfb1121/bowt/raw/main/docs/brag.mp4" poster="https://github.com/jfb1121/bowt/raw/main/docs/brag.jpg" controls muted playsinline width="900"></video>
 
 ![bowt running work lanes](docs/demo.gif)
 
