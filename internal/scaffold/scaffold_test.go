@@ -7,43 +7,66 @@ import (
 	"testing"
 )
 
-func withExclude(t *testing.T) string {
-	t.Helper()
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git", "info"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "exclude"), []byte("# git ls-files --others exclude\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return repo
-}
-
 func TestInitScaffoldsConfig(t *testing.T) {
-	repo := withExclude(t)
+	repo := t.TempDir()
 
 	res, err := Init(repo)
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
 
-	for _, f := range genericFiles {
-		info, err := os.Stat(filepath.Join(repo, ".bowt", f))
+	// name -> should be executable
+	want := map[string]bool{
+		".gitignore":  false,
+		"config":      false,
+		"setup.sh":    true,
+		"teardown.sh": true,
+		"AGENTS.md":   false,
+	}
+	for name, wantExec := range want {
+		info, err := os.Stat(filepath.Join(repo, ".bowt", name))
 		if err != nil {
-			t.Errorf("missing %s: %v", f, err)
+			t.Errorf("missing %s: %v", name, err)
 			continue
 		}
-		if strings.HasSuffix(f, ".sh") && info.Mode().Perm()&0o100 == 0 {
-			t.Errorf("%s should be executable, got mode %v", f, info.Mode().Perm())
+		if gotExec := info.Mode().Perm()&0o100 != 0; gotExec != wantExec {
+			t.Errorf("%s exec = %v, want %v (mode %v)", name, gotExec, wantExec, info.Mode().Perm())
 		}
 	}
 
-	if !res.Excluded {
-		t.Error("expected .bowt/ to be added to .git/info/exclude")
+	// The scaffolded .gitignore covers bowt's runtime artifacts so the rest of
+	// .bowt/ can be committed cleanly.
+	gi, err := os.ReadFile(filepath.Join(repo, ".bowt", ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .bowt/.gitignore: %v", err)
 	}
-	excl, _ := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
-	if !strings.Contains(string(excl), ".bowt/") {
-		t.Errorf("exclude missing .bowt/: %q", excl)
+	if !strings.Contains(string(gi), "gate.json") {
+		t.Errorf(".bowt/.gitignore missing gate.json: %q", gi)
+	}
+
+	if res.ConfigDir != filepath.Join(repo, ".bowt") {
+		t.Errorf("ConfigDir = %q, want %q", res.ConfigDir, filepath.Join(repo, ".bowt"))
+	}
+}
+
+// Init must NOT ignore .bowt/ globally — it's meant to be committed/shared.
+func TestInitDoesNotTouchGitExclude(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	excl := filepath.Join(repo, ".git", "info", "exclude")
+	if err := os.WriteFile(excl, []byte("# existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Init(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(excl)
+	if strings.Contains(string(data), ".bowt") {
+		t.Errorf(".git/info/exclude should be untouched, got: %q", data)
 	}
 }
 
@@ -54,28 +77,5 @@ func TestInitRefusesToClobber(t *testing.T) {
 	}
 	if _, err := Init(repo); err == nil {
 		t.Fatal("expected error when .bowt/ already exists")
-	}
-}
-
-func TestEnsureExcludedIdempotent(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git", "info"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	excl := filepath.Join(repo, ".git", "info", "exclude")
-	if err := os.WriteFile(excl, []byte(".bowt/\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	res, err := Init(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Excluded {
-		t.Error("expected Excluded=false when .bowt/ already present")
-	}
-	data, _ := os.ReadFile(excl)
-	if got := strings.Count(string(data), ".bowt/"); got != 1 {
-		t.Errorf("expected exactly one .bowt/ line, got %d: %q", got, data)
 	}
 }

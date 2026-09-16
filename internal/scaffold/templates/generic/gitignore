@@ -1,0 +1,6 @@
+# bowt writes these runtime artifacts under .bowt/. Ignore them — but DO commit
+# the rest of .bowt/ (config, setup.sh, teardown.sh, AGENTS.md) so your whole
+# team shares the same isolated-worktree setup.
+gate.json
+lane-*.log
+lane-*.spec.json

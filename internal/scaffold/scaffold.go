@@ -10,24 +10,34 @@ import (
 	"strings"
 )
 
-//go:embed templates/generic/config templates/generic/setup.sh templates/generic/teardown.sh templates/generic/AGENTS.md
+//go:embed templates/generic/config templates/generic/setup.sh templates/generic/teardown.sh templates/generic/AGENTS.md templates/generic/gitignore
 var generic embed.FS
 
 // Result reports what Init created, for agent-facing JSON.
 type Result struct {
 	ConfigDir string   `json:"config_dir"`
 	Files     []string `json:"files"`
-	Excluded  bool     `json:"git_excluded"`
 }
 
-// genericFiles are the template files copied into .bowt/, in write order.
-// The .sh files are written executable. AGENTS.md is an agent-facing guide for
-// wiring up this repo's hooks (so an agent scaffolds the stack, not us).
-var genericFiles = []string{"config", "setup.sh", "teardown.sh", "AGENTS.md"}
+// genericFile maps an embedded template to its destination name in .bowt/. The
+// .gitignore is stored embedded without the leading dot (go:embed skips
+// dotfiles) and written with it.
+type genericFile struct{ src, dest string }
 
-// Init scaffolds <mainRepo>/.bowt with a generic config and setup/teardown
-// hooks, and adds ".bowt/" to the repo's .git/info/exclude. It errors if
-// .bowt/ already exists rather than clobbering an existing config.
+var genericFiles = []genericFile{
+	{"config", "config"},
+	{"setup.sh", "setup.sh"},
+	{"teardown.sh", "teardown.sh"},
+	{"AGENTS.md", "AGENTS.md"},
+	{"gitignore", ".gitignore"},
+}
+
+// Init scaffolds <mainRepo>/.bowt with a generic config, setup/teardown hooks,
+// an agent guide, and a .gitignore for bowt's runtime artifacts. The directory
+// is meant to be committed so a team shares one worktree setup; only bowt's
+// generated artifacts are ignored, via the scaffolded .bowt/.gitignore.
+//
+// Init errors if .bowt/ already exists rather than clobbering an existing config.
 func Init(mainRepo string) (Result, error) {
 	cfgDir := filepath.Join(mainRepo, ".bowt")
 	if _, err := os.Stat(cfgDir); err == nil {
@@ -41,60 +51,20 @@ func Init(mainRepo string) (Result, error) {
 	}
 
 	written := make([]string, 0, len(genericFiles))
-	for _, name := range genericFiles {
-		data, err := generic.ReadFile("templates/generic/" + name)
+	for _, f := range genericFiles {
+		data, err := generic.ReadFile("templates/generic/" + f.src)
 		if err != nil {
 			return Result{}, err
 		}
 		mode := os.FileMode(0o644)
-		if strings.HasSuffix(name, ".sh") {
+		if strings.HasSuffix(f.dest, ".sh") {
 			mode = 0o755
 		}
-		if err := os.WriteFile(filepath.Join(cfgDir, name), data, mode); err != nil {
+		if err := os.WriteFile(filepath.Join(cfgDir, f.dest), data, mode); err != nil {
 			return Result{}, err
 		}
-		written = append(written, filepath.Join(".bowt", name))
+		written = append(written, filepath.Join(".bowt", f.dest))
 	}
 
-	excluded, err := ensureExcluded(mainRepo, ".bowt/")
-	if err != nil {
-		return Result{}, err
-	}
-
-	return Result{ConfigDir: cfgDir, Files: written, Excluded: excluded}, nil
-}
-
-// ensureExcluded appends pattern to <mainRepo>/.git/info/exclude if not already
-// present. A missing exclude file (e.g. running inside a linked worktree) is not
-// an error — it just means nothing was excluded.
-func ensureExcluded(mainRepo, pattern string) (bool, error) {
-	excl := filepath.Join(mainRepo, ".git", "info", "exclude")
-	data, err := os.ReadFile(excl)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == pattern {
-			return false, nil
-		}
-	}
-
-	f, err := os.OpenFile(excl, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = f.Close() }()
-
-	// Guard against a file that lacks a trailing newline.
-	prefix := ""
-	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
-		prefix = "\n"
-	}
-	if _, err := f.WriteString(prefix + pattern + "\n"); err != nil {
-		return false, err
-	}
-	return true, nil
+	return Result{ConfigDir: cfgDir, Files: written}, nil
 }

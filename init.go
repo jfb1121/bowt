@@ -13,7 +13,8 @@ func newInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "scaffold a .bowt/ config for this repo",
 		Long: `Create a .bowt/ directory with a generic config, setup/teardown hooks, and an
-agent guide (AGENTS.md), and add .bowt/ to the repo's .git/info/exclude.
+agent guide (AGENTS.md). Commit .bowt/ so your whole team shares one worktree
+setup; bowt's runtime artifacts are ignored via a scaffolded .bowt/.gitignore.
 
 Edit .bowt/config and .bowt/setup.sh for your stack — or point a coding agent at
 .bowt/AGENTS.md and let it wire the hooks by reading this repo. Then
