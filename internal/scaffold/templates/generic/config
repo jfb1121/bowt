@@ -1,0 +1,9 @@
+# bowt per-repo config — sourced (bash) before every worktree operation.
+# Set variables your setup.sh / teardown.sh need. BOWT_* names are preferred;
+# GWT_* names are still read for twig back-compat.
+
+# First port for offset 0; each worktree gets PortBase + offset (default 8000).
+# BOWT_PORT_BASE=8000
+
+# Example custom vars for your stack (available to the hooks and `bowt exec`):
+# BOWT_DB_PREFIX=myapp_wt

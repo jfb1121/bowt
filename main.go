@@ -67,10 +67,12 @@ output instead of scraping tables.`,
 	root.SetVersionTemplate("{{.Version}}\n")
 
 	root.AddCommand(
+		newInitCmd(),
 		newNewCmd(),
 		newLsCmd(),
 		newPathCmd(),
 		newRmCmd(),
+		newSetupCmd(),
 		newExecCmd(),
 		newSpawnCmd(),
 		newLaneCmd(),

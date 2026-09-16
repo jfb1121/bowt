@@ -122,6 +122,55 @@ func New(st state.Store, r run.Runner, branch, base string, codeOnly bool) (stat
 	return wt, nil
 }
 
+// Setup re-runs the pre-setup and setup lifecycle hooks for an already-
+// registered worktree, using the same positional/env contract as New. It is how
+// a user re-provisions a worktree after editing setup.sh. A missing hook script
+// is a no-op; a failing hook is returned as an error (unlike New, setup here is
+// an explicit request, so pre-setup and setup are both fatal).
+func Setup(st state.Store, r run.Runner, branch string) error {
+	main, err := repo.MainRepo()
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(main)
+
+	wt, ok, err := st.Get(name, branch)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no worktree registered for %q", branch)
+	}
+
+	cfgDir := config.Dir(main)
+	if cfgDir == "" {
+		return fmt.Errorf("no .bowt/ or .twig/ config in %s — run 'bowt init' first", main)
+	}
+	vars, err := config.Load(r, cfgDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	hookEnv := env.Build(env.Info{
+		Path:     wt.Path,
+		Branch:   branch,
+		Offset:   wt.Offset,
+		Port:     wt.Port,
+		MainRepo: main,
+		RepoName: name,
+		CodeOnly: wt.CodeOnly(),
+	}, vars)
+	hookArgs := hook.Args{Path: wt.Path, Branch: branch, Offset: wt.Offset, Port: wt.Port}
+
+	if _, err := hook.Run(r, cfgDir, hook.PreSetup, hookArgs, hookEnv); err != nil {
+		return err
+	}
+	if _, err := hook.Run(r, cfgDir, hook.Setup, hookArgs, hookEnv); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Remove runs the teardown hook (best-effort) and then tears down and
 // deregisters a worktree. A failing teardown.sh is a warning — removal still
 // proceeds — matching twig.
