@@ -10,6 +10,11 @@ orchestration layer (`spawn`, `gate`, `review`, `land`) for driving headless
 coding agents in parallel. Agent-first: every command speaks JSON when piped, so
 an agent drives bowt exactly the way you do.
 
+**▶ Watch the tour** — isolation, the command center, and the Plan → Impl →
+Review → Gate → PR pipeline in 26 seconds (click to play):
+
+[![bowt — a bunch of worktrees: watch the launch video](docs/brag.jpg)](docs/brag.mp4)
+
 ![bowt running work lanes](docs/demo.gif)
 
 > **Pre-1.0.** The worktree core and the agent/orchestration layer (`spawn`,

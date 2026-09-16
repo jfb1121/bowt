@@ -23,3 +23,6 @@ subagent/
 
 # goreleaser build output
 dist/
+
+# brag launch-video generation workspace
+brag-output/
