@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed templates/generic/config templates/generic/setup.sh templates/generic/teardown.sh
+//go:embed templates/generic/config templates/generic/setup.sh templates/generic/teardown.sh templates/generic/AGENTS.md
 var generic embed.FS
 
 // Result reports what Init created, for agent-facing JSON.
@@ -21,8 +21,9 @@ type Result struct {
 }
 
 // genericFiles are the template files copied into .bowt/, in write order.
-// The .sh files are written executable.
-var genericFiles = []string{"config", "setup.sh", "teardown.sh"}
+// The .sh files are written executable. AGENTS.md is an agent-facing guide for
+// wiring up this repo's hooks (so an agent scaffolds the stack, not us).
+var genericFiles = []string{"config", "setup.sh", "teardown.sh", "AGENTS.md"}
 
 // Init scaffolds <mainRepo>/.bowt with a generic config and setup/teardown
 // hooks, and adds ".bowt/" to the repo's .git/info/exclude. It errors if

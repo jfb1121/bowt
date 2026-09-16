@@ -12,11 +12,12 @@ func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "scaffold a .bowt/ config for this repo",
-		Long: `Create a .bowt/ directory with a generic config and setup/teardown hooks, and
-add .bowt/ to the repo's .git/info/exclude.
+		Long: `Create a .bowt/ directory with a generic config, setup/teardown hooks, and an
+agent guide (AGENTS.md), and add .bowt/ to the repo's .git/info/exclude.
 
-Edit .bowt/config and .bowt/setup.sh for your stack; then 'bowt new <branch>'
-runs them for each worktree (and 'bowt setup' re-runs them).`,
+Edit .bowt/config and .bowt/setup.sh for your stack — or point a coding agent at
+.bowt/AGENTS.md and let it wire the hooks by reading this repo. Then
+'bowt new <branch>' runs them for each worktree ('bowt setup' re-runs them).`,
 		Example: "  bowt init",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -28,6 +29,8 @@ runs them for each worktree (and 'bowt setup' re-runs them).`,
 			if err != nil {
 				return err
 			}
+			// Human hint on stderr (stdout stays reserved for the JSON result).
+			output.Errf("next: edit .bowt/setup.sh, or point an agent at .bowt/AGENTS.md to wire it up")
 			return output.Emit(res)
 		},
 	}
