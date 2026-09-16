@@ -1,14 +1,14 @@
 package extension
 
 // Lib is the sourceable bash helper an extension loads via `source "$BOWT_LIB"`,
-// and the exact text `bowt lib` prints. The per-worktree BOWT_*/GWT_* + config
+// and the exact text `bowt lib` prints. The per-worktree BOWT_* + config
 // environment is already exported into the script, so the lib is intentionally
 // thin — just diagnostic helpers that respect the stdout=data / stderr=logs
 // split. Richer callbacks (bowt_signal, bowt_gate_record, bowt_status_add) are
 // deliberately deferred.
 const Lib = `# bowt.lib.sh — sourceable helpers for bowt extensions.
 #
-# The per-worktree BOWT_*/GWT_* + config environment is already exported into
+# The per-worktree BOWT_* + config environment is already exported into
 # your script, so this lib is intentionally thin. Source it at the top of an
 # extension with:
 #

@@ -80,7 +80,7 @@ each one's description and lock mode.
 
 An extension is a bash script the repo drops in to add a 'bowt <cmd>' without
 patching bowt. When <cmd> is not a built-in and a matching script exists, bowt
-runs it as a subprocess with the per-worktree BOWT_*/GWT_* environment injected
+runs it as a subprocess with the per-worktree BOWT_* environment injected
 and BOWT_LIB pointing at the helper (see 'bowt lib').
 
 A leading comment header configures it:
@@ -105,7 +105,7 @@ exports BOWT_LIB into every extension pointing at this content, so a script can:
   source "$BOWT_LIB"
   bowt_log "starting"
 
-It defines bowt_log / bowt_err (both to stderr). The BOWT_*/GWT_* environment is
+It defines bowt_log / bowt_err (both to stderr). The BOWT_* environment is
 already exported into the script, so the helper stays thin.`,
 		Example: "  bowt lib",
 		Args:    cobra.NoArgs,
@@ -216,7 +216,7 @@ func tryExtension(root *cobra.Command, args []string) (code int, handled bool) {
 }
 
 // cmdExtension runs a resolved extension against the worktree the caller stands
-// in: cwd = that worktree, the per-worktree BOWT_*/GWT_* + config env injected,
+// in: cwd = that worktree, the per-worktree BOWT_* + config env injected,
 // and the manifest's lock taken around the run so the author writes no lock
 // code. It returns the child's exit code; err covers only setup/lock failures.
 func cmdExtension(main string, ext extension.Extension, args []string) (int, error) {

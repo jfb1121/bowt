@@ -8,8 +8,7 @@
 // untrustworthy, and a synthesis pass then manufactures a phantom decision-queue
 // entry from it. The perspective prompt already forbids the mismatch; a prompt
 // is not a postcondition. These helpers make the harness reject such a report as
-// a failed run — ported faithfully from twig's review.sh (§ structural
-// postconditions).
+// a failed run (§ structural postconditions).
 package review
 
 import (

@@ -10,11 +10,10 @@ import (
 
 // dropinSubdir is the user-level directory (under ~/.bowt) that holds drop-in
 // provider descriptors. Drop-ins are USER-level, not repo-level: unlike config's
-// repo .bowt-else-.twig resolution (config.Dir) or the per-repo extension loader,
-// a provider a user adds applies to every repo, so it lives under the home dir.
+// repo .bowt resolution (config.Dir) or the per-repo extension loader, a
+// provider a user adds applies to every repo, so it lives under the home dir.
 // The on-disk discovery MECHANISM mirrors the extension loader (extension.List:
-// ReadDir + suffix filter), but the location is home, and there is deliberately
-// no .twig fallback here — drop-ins are a bowt-native feature.
+// ReadDir + suffix filter), but the location is home.
 const dropinSubdir = ".bowt/agents"
 
 // LoadDropins discovers and registers user drop-in providers from

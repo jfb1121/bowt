@@ -252,8 +252,8 @@ func TestRequireOneshot(t *testing.T) {
 	}
 }
 
-// Selection precedence: flag → BOWT_AGENT → GWT_AGENT → default claude; an
-// unknown name from any source is a hard error.
+// Selection precedence: flag → BOWT_AGENT → default claude; an unknown name
+// from any source is a hard error.
 func TestSelect(t *testing.T) {
 	env := func(m map[string]string) func(string) string {
 		return func(k string) string { return m[k] }
@@ -267,8 +267,6 @@ func TestSelect(t *testing.T) {
 	}{
 		{name: "flag wins over env", flag: "codex", env: map[string]string{"BOWT_AGENT": "claude"}, want: "codex"},
 		{name: "BOWT_AGENT when no flag", env: map[string]string{"BOWT_AGENT": "codex"}, want: "codex"},
-		{name: "GWT_AGENT back-compat", env: map[string]string{"GWT_AGENT": "codex"}, want: "codex"},
-		{name: "BOWT_AGENT beats GWT_AGENT", env: map[string]string{"BOWT_AGENT": "claude", "GWT_AGENT": "codex"}, want: "claude"},
 		{name: "default claude", want: "claude"},
 		{name: "unknown flag errors", flag: "bogus", wantErr: true},
 		{name: "unknown env errors", env: map[string]string{"BOWT_AGENT": "bogus"}, wantErr: true},

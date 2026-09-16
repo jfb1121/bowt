@@ -170,8 +170,8 @@ func assemble(fsys fs.FS, mode Mode, agentName, memoryFile, brief string) (Assem
 }
 
 // briefCandidates are the relative paths tried, in order, when no explicit
-// brief is passed. First match wins. (twig also checks docs/*_PROMPT.md; bowt's
-// brief scopes this to these three — noted in the slice STATUS.)
+// brief is passed. First match wins. (bowt scopes this to these three paths —
+// noted in the slice STATUS.)
 var briefCandidates = []string{"subagent/PROMPT.md", "subagent/*-prompt.md", "PROMPT.md"}
 
 // ResolveBrief finds the brief file for a spawn rooted at dir and returns its

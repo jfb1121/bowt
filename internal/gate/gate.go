@@ -123,7 +123,7 @@ func Run(p Params) (*Result, error) {
 	}
 
 	if p.ConfigDir == "" {
-		return nil, fmt.Errorf("gate hook not found: no config dir (.bowt/ or .twig/) in the repo — create one with a %s", HookFile)
+		return nil, fmt.Errorf("gate hook not found: no .bowt/ config dir in the repo — create one with a %s", HookFile)
 	}
 	hook := filepath.Join(p.ConfigDir, HookFile)
 	if _, err := os.Stat(hook); err != nil {

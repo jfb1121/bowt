@@ -8,18 +8,10 @@ import (
 	"github.com/jfb1121/bowt/internal/run"
 )
 
-func TestDirPrefersBowtThenTwig(t *testing.T) {
+func TestDirResolvesBowt(t *testing.T) {
 	root := t.TempDir()
 	if got := Dir(root); got != "" {
-		t.Fatalf("Dir with neither dir = %q; want \"\"", got)
-	}
-
-	twig := filepath.Join(root, ".twig")
-	if err := os.MkdirAll(twig, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if got := Dir(root); got != twig {
-		t.Fatalf("Dir = %q; want %q", got, twig)
+		t.Fatalf("Dir with no config dir = %q; want \"\"", got)
 	}
 
 	bowt := filepath.Join(root, ".bowt")
@@ -27,7 +19,7 @@ func TestDirPrefersBowtThenTwig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := Dir(root); got != bowt {
-		t.Fatalf("Dir with both = %q; want .bowt %q", got, bowt)
+		t.Fatalf("Dir = %q; want .bowt %q", got, bowt)
 	}
 }
 
@@ -48,7 +40,7 @@ func TestLoadReturnsEmptyWhenNoConfig(t *testing.T) {
 // Real bash: a config file that sets vars is sourced and diffed cleanly.
 func TestLoadSourcesConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfg := "GWT_PORT_BASE=9000\nFOO=bar\nexport BAZ=\"a b\"\n"
+	cfg := "BOWT_PORT_BASE=9000\nFOO=bar\nexport BAZ=\"a b\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +48,8 @@ func TestLoadSourcesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if vars["GWT_PORT_BASE"] != "9000" {
-		t.Errorf("GWT_PORT_BASE = %q; want 9000", vars["GWT_PORT_BASE"])
+	if vars["BOWT_PORT_BASE"] != "9000" {
+		t.Errorf("BOWT_PORT_BASE = %q; want 9000", vars["BOWT_PORT_BASE"])
 	}
 	if vars["FOO"] != "bar" {
 		t.Errorf("FOO = %q; want bar", vars["FOO"])
@@ -76,12 +68,12 @@ func TestLoadSourcesConfig(t *testing.T) {
 	}
 }
 
-func TestPortBasePrefersBowtKey(t *testing.T) {
-	v := Vars{"GWT_PORT_BASE": "9000", "BOWT_PORT_BASE": "7000"}
+func TestPortBaseReadsBowtKey(t *testing.T) {
+	v := Vars{"BOWT_PORT_BASE": "7000"}
 	if got := v.PortBase(); got != 7000 {
-		t.Fatalf("PortBase = %d; want 7000 (BOWT_ preferred)", got)
+		t.Fatalf("PortBase = %d; want 7000", got)
 	}
-	if got := (Vars{"GWT_PORT_BASE": "bogus"}).PortBase(); got != DefaultPortBase {
+	if got := (Vars{"BOWT_PORT_BASE": "bogus"}).PortBase(); got != DefaultPortBase {
 		t.Fatalf("PortBase with bad value = %d; want default", got)
 	}
 }

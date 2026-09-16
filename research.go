@@ -53,7 +53,7 @@ a final agent that merges the findings into <out>/SYNTHESIS.md.`,
 	c.Flags().IntVar(&opts.concurrency, "concurrency", research.DefaultConcurrency, "max agents running at once (OOM guard)")
 	c.Flags().StringVar(&opts.out, "out", research.DefaultOutDir, "directory each agent writes its findings into")
 	c.Flags().BoolVar(&opts.synthesize, "synthesize", false, "after all finish, one agent merges the findings into SYNTHESIS.md")
-	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (claude, codex; default: $BOWT_AGENT/$GWT_AGENT or claude)")
+	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (claude, codex; default: $BOWT_AGENT or claude)")
 	c.Flags().StringVar(&opts.model, "model", "", "agent model (alias opus/sonnet/haiku, or a full ID)")
 	c.Flags().StringVar(&opts.effort, "effort", "", "agent reasoning effort (e.g. high)")
 	c.Flags().BoolVar(&opts.dryRun, "dry-run", false, "assemble the plan (tasks, concurrency, out paths) and print it, then exit — launch no agents")

@@ -52,7 +52,7 @@ subagent/FOLLOWUP.md is auto-appended when present.`,
 	}
 	c.Flags().BoolVar(&opts.impl, "impl", false, "implementation pass (default is a plan + writeback pass)")
 	c.Flags().BoolVar(&opts.orch, "orch", false, "orchestrator pass: decompose, delegate, gate, escalate (never writes code; interactive by default; --headless permitted for nested orch-of-orch)")
-	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (claude, codex; default: $BOWT_AGENT/$GWT_AGENT or claude)")
+	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (claude, codex; default: $BOWT_AGENT or claude)")
 	c.Flags().StringVar(&opts.model, "model", "", "agent model (alias opus/sonnet/haiku, or a full ID)")
 	c.Flags().StringVar(&opts.effort, "effort", "", "agent reasoning effort (e.g. high)")
 	c.Flags().BoolVar(&opts.printPrompt, "print-prompt", false, "assemble and print the prompt + provenance, then exit (no agent, no lock)")
@@ -86,7 +86,7 @@ func cmdSpawn(opts spawnOpts) error {
 		return err
 	}
 
-	// Select the provider up front (flag → $BOWT_AGENT/$GWT_AGENT → claude); an
+	// Select the provider up front (flag → $BOWT_AGENT → claude); an
 	// unknown agent is a hard error before any work.
 	ag, err := agent.Select(opts.agent, os.Getenv)
 	if err != nil {

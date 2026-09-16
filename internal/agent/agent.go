@@ -158,13 +158,13 @@ func newWith(name string, r runner, warnf func(string, ...any)) (Agent, error) {
 }
 
 // Select resolves the provider by precedence: an explicit --agent flag, then
-// BOWT_AGENT, then GWT_AGENT (back-compat) from getenv, then DefaultAgent.
-// getenv is injected (pass os.Getenv) so precedence is testable. An unknown
-// name — from any source — is a hard error.
+// BOWT_AGENT from getenv, then DefaultAgent. getenv is injected (pass
+// os.Getenv) so precedence is testable. An unknown name — from any source — is
+// a hard error.
 func Select(flag string, getenv func(string) string) (Agent, error) {
 	name := flag
 	if name == "" {
-		name = firstNonEmpty(getenv("BOWT_AGENT"), getenv("GWT_AGENT"))
+		name = getenv("BOWT_AGENT")
 	}
 	if name == "" {
 		name = DefaultAgent
@@ -196,13 +196,4 @@ func RequireHeadless(a Agent) error {
 		return fmt.Errorf("agent %q cannot run headless: an unattended run needs the Edit/Write hook guardrail (--dangerously-skip-permissions is mandatory with no TTY), which this provider lacks", c.Name)
 	}
 	return nil
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

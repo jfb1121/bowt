@@ -7,9 +7,9 @@ import (
 
 // Preflight is the block of mechanical truths computed once from the diff and
 // injected into every perspective prompt. Handing these over beats hoping the
-// model runs the right git command — twig shipped 11 committed binaries past
-// eight perspectives because nothing put that count in front of them. The
-// command layer fills this in from git (see repo.Preflight); the review package
+// model runs the right git command — a review can miss committed binaries when
+// nothing puts that count in front of the model. The command layer fills this
+// in from git (see repo.Preflight); the review package
 // only formats it, so the pipeline stays unit-testable without git.
 type Preflight struct {
 	// BinaryAdded lists binary files the diff adds (numstat "- -" rows).
@@ -24,8 +24,7 @@ type Preflight struct {
 	AddedSymbols []string
 }
 
-// String renders the preflight facts as the prompt block, matching review.sh's
-// §6a wording so the injected facts read identically to the twig pipeline's.
+// String renders the preflight facts as the prompt block (§6a wording).
 func (pf Preflight) String() string {
 	var b strings.Builder
 	b.WriteString("=== PREFLIGHT FACTS (computed for you — do not re-derive, do act on) ===\n")

@@ -136,7 +136,7 @@ func TestList(t *testing.T) {
 func TestRunSeesEnvArgsCwdExitAndLib(t *testing.T) {
 	body := `#!/usr/bin/env bash
 source "$BOWT_LIB"
-echo "port=$BOWT_PORT branch=$GWT_BRANCH"
+echo "port=$BOWT_PORT branch=$BOWT_BRANCH"
 echo "args=$*"
 echo "cwd=$PWD"
 bowt_log "hello-from-lib"
@@ -155,7 +155,7 @@ exit 7
 	if err != nil {
 		t.Fatal(err)
 	}
-	envKV := []string{"BOWT_PORT=8123", "GWT_BRANCH=feature/x"}
+	envKV := []string{"BOWT_PORT=8123", "BOWT_BRANCH=feature/x"}
 
 	var stdout, stderr bytes.Buffer
 	code, err := Run(ext, wt, envKV, []string{"a", "b c"}, nil, &stdout, &stderr)

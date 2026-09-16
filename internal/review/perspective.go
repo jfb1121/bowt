@@ -63,9 +63,9 @@ func Discover(perspectivesDir string) ([]Perspective, error) {
 // discovered perspectives are selected.
 //
 // Layer auto-routing by changed paths — matching a diff's touched files against
-// each perspective's `layers:` — is repo-specific (the twig implementation hard-
-// codes Django paths). It is DEFERRED: bowt defaults to every perspective, and a
-// per-repo layer classifier is a later hook. See STATUS.md.
+// each perspective's `layers:` — is repo-specific (e.g. hard-coding a
+// framework's directory layout). It is DEFERRED: bowt defaults to every
+// perspective, and a per-repo layer classifier is a later hook. See STATUS.md.
 func Select(all []Perspective, explicit []string) ([]Perspective, error) {
 	if len(explicit) == 0 {
 		return all, nil

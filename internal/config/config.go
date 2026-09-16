@@ -1,9 +1,8 @@
 // Package config resolves a repo's config directory and loads its bash config
-// file. Loading keeps the twig contract intact: the config is a bash script we
-// source, so an existing gen2-be .twig/config (and its GWT_* exports) works
-// with zero migration. We source it in a subshell through the run.Runner seam
-// and diff the resulting environment against a clean bash baseline to recover
-// exactly the variables the config defined.
+// file. The config is a bash script we source, so a repo's .bowt/config (and
+// its exported vars) is applied as-is. We source it in a subshell through the
+// run.Runner seam and diff the resulting environment against a clean bash
+// baseline to recover exactly the variables the config defined.
 package config
 
 import (
@@ -20,12 +19,8 @@ import (
 // DefaultPortBase is the first port when the config sets no *_PORT_BASE.
 const DefaultPortBase = 8000
 
-// Config directory names, in resolution order: bowt-native first, then the
-// twig directory for back-compat.
-const (
-	dirBowt = ".bowt"
-	dirTwig = ".twig"
-)
+// dirBowt is bowt's config directory name.
+const dirBowt = ".bowt"
 
 // configFile is the bash config sourced inside the config dir.
 const configFile = "config"
@@ -35,14 +30,12 @@ const configFile = "config"
 // fixed agent-facing JSON shape.
 type Vars map[string]string
 
-// Dir returns the config directory inside mainRepo: .bowt if present, else
-// .twig (back-compat), else "" when neither exists.
+// Dir returns the config directory inside mainRepo: .bowt if present, else ""
+// when it does not exist.
 func Dir(mainRepo string) string {
-	for _, name := range []string{dirBowt, dirTwig} {
-		p := filepath.Join(mainRepo, name)
-		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-			return p
-		}
+	p := filepath.Join(mainRepo, dirBowt)
+	if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+		return p
 	}
 	return ""
 }
@@ -84,14 +77,12 @@ func Load(r run.Runner, dir string) (Vars, error) {
 	return vars, nil
 }
 
-// PortBase reads BOWT_PORT_BASE (preferred) or GWT_PORT_BASE (back-compat) from
-// the config, falling back to DefaultPortBase.
+// PortBase reads BOWT_PORT_BASE from the config, falling back to
+// DefaultPortBase.
 func (v Vars) PortBase() int {
-	for _, k := range []string{"BOWT_PORT_BASE", "GWT_PORT_BASE"} {
-		if s, ok := v[k]; ok {
-			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
-				return n
-			}
+	if s, ok := v["BOWT_PORT_BASE"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			return n
 		}
 	}
 	return DefaultPortBase

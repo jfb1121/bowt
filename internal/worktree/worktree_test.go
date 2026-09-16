@@ -87,7 +87,7 @@ func TestNewListPathRemove(t *testing.T) {
 // New --code-only registers a code-only worktree that Get/List report as such,
 // while a default New (codeOnly=false) is full.
 func TestNewCodeOnlyMode(t *testing.T) {
-	_, _ = initConfigRepo(t) // chdir'd temp repo with an empty .twig (no hooks)
+	_, _ = initConfigRepo(t) // chdir'd temp repo with an empty .bowt (no hooks)
 
 	st, err := state.Open()
 	if err != nil {
@@ -115,7 +115,7 @@ func TestNewCodeOnlyMode(t *testing.T) {
 }
 
 // initConfigRepo makes a temp repo, chdirs into it, and returns (mainRepo path,
-// its .twig dir) so tests can drop config/hook scripts in.
+// its .bowt dir) so tests can drop config/hook scripts in.
 func initConfigRepo(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -139,11 +139,11 @@ func initConfigRepo(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 
-	twig := filepath.Join(repoDir, ".twig")
-	if err := os.MkdirAll(twig, 0o755); err != nil {
+	bowt := filepath.Join(repoDir, ".bowt")
+	if err := os.MkdirAll(bowt, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return repoDir, twig
+	return repoDir, bowt
 }
 
 func writeFile(t *testing.T, path, content string, mode os.FileMode) {
@@ -153,26 +153,24 @@ func writeFile(t *testing.T, path, content string, mode os.FileMode) {
 	}
 }
 
-// End-to-end with a real .twig/config + setup.sh: the config's GWT_PORT_BASE
+// End-to-end with a real .bowt/config + setup.sh: the config's BOWT_PORT_BASE
 // drives the port, and setup.sh receives the positional args and the exported
-// BOWT_*/GWT_* environment.
+// BOWT_* environment.
 func TestNewConfigAndHooks(t *testing.T) {
-	_, twig := initConfigRepo(t)
-	writeFile(t, filepath.Join(twig, "config"), "GWT_PORT_BASE=9000\nFOO=bar\n", 0o644)
+	_, bowt := initConfigRepo(t)
+	writeFile(t, filepath.Join(bowt, "config"), "BOWT_PORT_BASE=9000\nFOO=bar\n", 0o644)
 	// setup.sh records its args + selected env into $BOWT_PATH/setup.out.
 	setup := `#!/usr/bin/env bash
 {
   echo "args=$1|$2|$3|$4"
   echo "BOWT_PORT=$BOWT_PORT"
-  echo "GWT_PORT=$GWT_PORT"
   echo "BOWT_BRANCH=$BOWT_BRANCH"
   echo "BOWT_REPO_NAME=$BOWT_REPO_NAME"
-  echo "TWIG_REPO_NAME=$TWIG_REPO_NAME"
   echo "FOO=$FOO"
   echo "AUTOENV_ASSUME_YES=$AUTOENV_ASSUME_YES"
 } > "$1/setup.out"
 `
-	writeFile(t, filepath.Join(twig, "setup.sh"), setup, 0o755)
+	writeFile(t, filepath.Join(bowt, "setup.sh"), setup, 0o755)
 
 	st, err := state.Open()
 	if err != nil {
@@ -183,7 +181,7 @@ func TestNewConfigAndHooks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// Port base comes from GWT_PORT_BASE=9000, offset 1 → 9001.
+	// Port base comes from BOWT_PORT_BASE=9000, offset 1 → 9001.
 	if wt.Port != 9001 {
 		t.Fatalf("port = %d; want 9001 (config port base)", wt.Port)
 	}
@@ -196,10 +194,8 @@ func TestNewConfigAndHooks(t *testing.T) {
 	wants := []string{
 		"args=" + wt.Path + "|feature/x|1|9001",
 		"BOWT_PORT=9001",
-		"GWT_PORT=9001",
 		"BOWT_BRANCH=feature/x",
 		"BOWT_REPO_NAME=myrepo",
-		"TWIG_REPO_NAME=myrepo",
 		"FOO=bar",
 		"AUTOENV_ASSUME_YES=1",
 	}
@@ -213,8 +209,8 @@ func TestNewConfigAndHooks(t *testing.T) {
 // A failing pre-setup.sh is fatal for New (returns an error) but the worktree
 // is kept on disk and in the registry.
 func TestNewPreSetupFatal(t *testing.T) {
-	_, twig := initConfigRepo(t)
-	writeFile(t, filepath.Join(twig, "pre-setup.sh"), "#!/usr/bin/env bash\nexit 3\n", 0o755)
+	_, bowt := initConfigRepo(t)
+	writeFile(t, filepath.Join(bowt, "pre-setup.sh"), "#!/usr/bin/env bash\nexit 3\n", 0o755)
 
 	st, err := state.Open()
 	if err != nil {
@@ -236,8 +232,8 @@ func TestNewPreSetupFatal(t *testing.T) {
 
 // A failing setup.sh is only a warning: New succeeds, worktree is kept.
 func TestNewSetupNonFatal(t *testing.T) {
-	_, twig := initConfigRepo(t)
-	writeFile(t, filepath.Join(twig, "setup.sh"), "#!/usr/bin/env bash\nexit 1\n", 0o755)
+	_, bowt := initConfigRepo(t)
+	writeFile(t, filepath.Join(bowt, "setup.sh"), "#!/usr/bin/env bash\nexit 1\n", 0o755)
 
 	st, err := state.Open()
 	if err != nil {
@@ -255,10 +251,10 @@ func TestNewSetupNonFatal(t *testing.T) {
 
 // teardown.sh runs before removal and receives the positional args.
 func TestRemoveTeardown(t *testing.T) {
-	_, twig := initConfigRepo(t)
+	_, bowt := initConfigRepo(t)
 	marker := filepath.Join(t.TempDir(), "teardown.out")
 	teardown := "#!/usr/bin/env bash\necho \"$1|$2|$4\" > " + marker + "\n"
-	writeFile(t, filepath.Join(twig, "teardown.sh"), teardown, 0o755)
+	writeFile(t, filepath.Join(bowt, "teardown.sh"), teardown, 0o755)
 
 	st, err := state.Open()
 	if err != nil {

@@ -24,7 +24,7 @@ func newGateCmd() *cobra.Command {
 		Long: `Run the current worktree's gate hook under the exclusive per-worktree lock and
 write a machine-readable verdict to <worktree>/.bowt/gate.json.
 
-The repo owns what "gating" means via <configDir>/gate.sh (.bowt/ or .twig/): a
+The repo owns what "gating" means via <configDir>/gate.sh (.bowt/): a
 Go repo puts 'make check' there, a Django repo 'makemigrations --check'. The
 hook reports per-check results by printing lines on stdout:
 
@@ -86,7 +86,7 @@ func cmdGate(st state.Store, scope string) error {
 		return err
 	}
 
-	// Build the per-worktree env (BOWT_*/GWT_* + config vars) the hook sees — the
+	// Build the per-worktree env (BOWT_* + config vars) the hook sees — the
 	// same environment as exec/hooks. Port/offset come from the registry when the
 	// worktree is registered; a broken config is a warning, not a hard failure.
 	r := run.Exec{Stderr: os.Stderr}

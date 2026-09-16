@@ -1,6 +1,6 @@
 // Package hook invokes a repo's lifecycle scripts — pre-setup.sh, setup.sh,
 // teardown.sh — from the config directory, through the run.Runner seam. Each
-// script is called with twig's positional contract, "<path> <branch> <offset>
+// script is called with bowt's positional contract, "<path> <branch> <offset>
 // <port>", and with bowt's environment contract injected. The scripts run via
 // `env KEY=VALUE… bash <script> …` so the environment travels through the same
 // Runner boundary (no per-Runner env field, no os.Setenv side effects).

@@ -8,13 +8,13 @@ A single static Go binary. Every git branch gets its own worktree with an
 allocated port/offset (and, as it grows, a per-worktree DB and `.env`), plus an
 orchestration layer (`spawn`, `gate`, `review`, `land`) for driving headless
 coding agents in parallel. Agent-first: every command speaks JSON when piped, so
-an agent drives bowt exactly the way you do. The successor to the `twig` shell tool.
+an agent drives bowt exactly the way you do.
 
 ![bowt running work lanes](docs/demo.gif)
 
 > **Pre-1.0.** The worktree core and the agent/orchestration layer (`spawn`,
-> `gate`, `review`, `research`, `land`, lanes) are in and tested. A few twig
-> conveniences (the Claude statusline, docs injection) aren't ported yet — see
+> `gate`, `review`, `research`, `land`, lanes) are in and tested. A few
+> conveniences (the Claude statusline, docs injection) aren't in yet — see
 > [`PORTING.md`](PORTING.md).
 
 ## Design
@@ -107,8 +107,8 @@ internal/           compiler-private core — importable only within this module
   lock/             exclusive per-worktree lock via flock(2)
   output/           JSON vs human render (agent-first)
   run/              process-execution seam (Runner) — config + hooks + tests
-  config/           resolve .bowt/.twig + bash-source the config file
-  env/              BOWT_* env contract (+ GWT_* back-compat aliases)
+  config/           resolve .bowt + bash-source the config file
+  env/              BOWT_* env contract
   hook/             pre-setup / setup / teardown lifecycle scripts
   worktree/         new · rm · path · list · setup — ties state + repo together
   scaffold/         `bowt init` templates (.bowt/ config + agent guide)

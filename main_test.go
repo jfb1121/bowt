@@ -481,7 +481,7 @@ func writeExtension(t *testing.T, cmd, body string) {
 }
 
 // A per-repo extension runs when its name isn't a built-in: it sees the
-// BOWT_*/GWT_* env + its args + cwd=worktree, and its exit code is propagated.
+// BOWT_* env + its args + cwd=worktree, and its exit code is propagated.
 func TestExtensionRunsEndToEnd(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // keep state.Open / locks off the real ~/.bowt
 	fixtureRepo(t)

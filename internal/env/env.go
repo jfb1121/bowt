@@ -1,8 +1,6 @@
-// Package env defines bowt's environment contract — the variables injected
-// into exec'd commands and lifecycle hooks. The canonical names are BOWT_*;
-// the historical GWT_* names (plus TWIG_REPO_NAME and AUTOENV_ASSUME_YES) are
-// exported alongside them so an existing twig .twig/config and its setup.sh /
-// teardown.sh keep working unchanged.
+// Package env defines bowt's environment contract — the BOWT_* variables
+// injected into exec'd commands and lifecycle hooks, plus AUTOENV_ASSUME_YES
+// so a repo's autoenv setup runs non-interactively.
 package env
 
 import (
@@ -32,10 +30,9 @@ type Info struct {
 }
 
 // Build returns the KEY=VALUE entries to append onto os.Environ() for a hook or
-// exec'd command. Order is: config-derived vars first, then the bowt contract,
-// then the GWT_* back-compat aliases — so bowt's computed values win over any
-// stale same-named value carried in from the config (env keeps the last
-// occurrence of a duplicate key).
+// exec'd command. Order is: config-derived vars first, then the bowt contract —
+// so bowt's computed values win over any stale same-named value carried in from
+// the config (env keeps the last occurrence of a duplicate key).
 func Build(i Info, cfg map[string]string) []string {
 	codeOnly := "0"
 	if i.CodeOnly {
@@ -55,13 +52,6 @@ func Build(i Info, cfg map[string]string) []string {
 		KeyMainRepo+"="+i.MainRepo,
 		KeyRepoName+"="+i.RepoName,
 		KeyCodeOnly+"="+codeOnly,
-		// GWT_* back-compat aliases + twig extras.
-		"GWT_PORT="+port,
-		"GWT_OFFSET="+offset,
-		"GWT_BRANCH="+i.Branch,
-		"GWT_MAIN_REPO="+i.MainRepo,
-		"GWT_CODE_ONLY="+codeOnly,
-		"TWIG_REPO_NAME="+i.RepoName,
 		"AUTOENV_ASSUME_YES=1",
 	)
 	return out

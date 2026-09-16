@@ -54,7 +54,7 @@ having reviewed nothing.`,
 	c.Flags().StringSliceVarP(&perspectives, "perspectives", "p", nil, "explicit perspective slugs (comma-separated); default is all")
 	c.Flags().BoolVar(&opts.all, "all", false, "run every discovered perspective (the default when -p is omitted)")
 	c.Flags().StringVar(&opts.base, "base", "", "diff base ref (default: the branch's upstream, else origin/main)")
-	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (must support one-shot; default: $BOWT_AGENT/$GWT_AGENT or claude)")
+	c.Flags().StringVar(&opts.agent, "agent", "", "agent provider (must support one-shot; default: $BOWT_AGENT or claude)")
 	c.Flags().StringVar(&opts.model, "model", "", "model recorded in the report header (per-call model is not yet plumbed through Oneshot — see STATUS)")
 	c.Flags().BoolVar(&opts.noSynthesize, "no-synthesize", false, "skip the synthesis/decision-queue stage")
 	return c
@@ -99,7 +99,7 @@ func cmdReview(st state.Store, opts reviewOpts) error {
 	// Perspectives live in the repo's config dir.
 	configDir := config.Dir(main)
 	if configDir == "" {
-		return fmt.Errorf("no config dir (.bowt/ or .twig/) in %s — cannot find review perspectives", main)
+		return fmt.Errorf("no .bowt/ config dir in %s — cannot find review perspectives", main)
 	}
 	perspectivesDir := filepath.Join(configDir, review.PerspectivesSubdir)
 	all, err := review.Discover(perspectivesDir)
@@ -179,14 +179,12 @@ func cmdReview(st state.Store, opts reviewOpts) error {
 	return nil
 }
 
-// reviewParallel reads the fan-out bound from BOWT_REVIEW_PARALLEL (preferred)
-// or GWT_REVIEW_PARALLEL (back-compat), falling back to the default.
+// reviewParallel reads the fan-out bound from BOWT_REVIEW_PARALLEL, falling
+// back to the default.
 func reviewParallel(getenv func(string) string) int {
-	for _, k := range []string{"BOWT_REVIEW_PARALLEL", "GWT_REVIEW_PARALLEL"} {
-		if s := strings.TrimSpace(getenv(k)); s != "" {
-			if n, err := strconv.Atoi(s); err == nil && n > 0 {
-				return n
-			}
+	if s := strings.TrimSpace(getenv("BOWT_REVIEW_PARALLEL")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
 		}
 	}
 	return review.DefaultMaxParallel

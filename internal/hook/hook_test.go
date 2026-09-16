@@ -28,7 +28,7 @@ func TestRunInvokesEnvBashWithArgs(t *testing.T) {
 	}
 	f := &run.Fake{}
 	a := Args{Path: "/wt", Branch: "feature/x", Offset: 3, Port: 8003}
-	ran, err := Run(f, dir, Setup, a, []string{"BOWT_PORT=8003", "GWT_PORT=8003"})
+	ran, err := Run(f, dir, Setup, a, []string{"BOWT_PORT=8003", "BOWT_OFFSET=3"})
 	if !ran || err != nil {
 		t.Fatalf("ran=%v err=%v; want true,nil", ran, err)
 	}
@@ -47,7 +47,7 @@ func TestRunInvokesEnvBashWithArgs(t *testing.T) {
 	if !strings.HasSuffix(joined, wantSuffix) {
 		t.Errorf("args = %q; want suffix %q", joined, wantSuffix)
 	}
-	if !strings.HasPrefix(joined, "BOWT_PORT=8003 GWT_PORT=8003 ") {
+	if !strings.HasPrefix(joined, "BOWT_PORT=8003 BOWT_OFFSET=3 ") {
 		t.Errorf("env not passed before the command: %q", joined)
 	}
 }

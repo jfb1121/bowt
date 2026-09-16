@@ -35,10 +35,10 @@ func dir(repoName, branch string) (string, error) {
 // New creates a worktree for branch (from base, defaulting to the main repo's
 // current branch), registers it, runs the pre-setup/setup lifecycle hooks, and
 // returns the created record. The port base comes from the repo's config
-// (BOWT_PORT_BASE / GWT_PORT_BASE), defaulting to config.DefaultPortBase.
+// (BOWT_PORT_BASE), defaulting to config.DefaultPortBase.
 //
-// Hook policy matches the brief (and diverges from twig on one point, noted in
-// STATUS.md): a failing setup.sh is a warning — the worktree is kept, not
+// Hook policy (noted in STATUS.md): a failing setup.sh is a warning — the
+// worktree is kept, not
 // rolled back — while a failing pre-setup.sh is fatal for `new` (returns an
 // error), though the worktree is still kept on disk for the fix-and-retry flow.
 func New(st state.Store, r run.Runner, branch, base string, codeOnly bool) (state.Worktree, error) {
@@ -144,7 +144,7 @@ func Setup(st state.Store, r run.Runner, branch string) error {
 
 	cfgDir := config.Dir(main)
 	if cfgDir == "" {
-		return fmt.Errorf("no .bowt/ or .twig/ config in %s — run 'bowt init' first", main)
+		return fmt.Errorf("no .bowt/ config in %s — run 'bowt init' first", main)
 	}
 	vars, err := config.Load(r, cfgDir)
 	if err != nil {
@@ -173,7 +173,7 @@ func Setup(st state.Store, r run.Runner, branch string) error {
 
 // Remove runs the teardown hook (best-effort) and then tears down and
 // deregisters a worktree. A failing teardown.sh is a warning — removal still
-// proceeds — matching twig.
+// proceeds.
 func Remove(st state.Store, r run.Runner, branch string) error {
 	main, err := repo.MainRepo()
 	if err != nil {

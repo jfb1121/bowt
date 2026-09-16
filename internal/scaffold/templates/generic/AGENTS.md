@@ -12,8 +12,8 @@ working environment for *this repo's* stack. Read the repo, then write the hooks
 
 - **positional args:** `$1=path  $2=branch  $3=offset  $4=port`
 - **environment:** `BOWT_PORT BOWT_OFFSET BOWT_BRANCH BOWT_MAIN_REPO
-  BOWT_REPO_NAME BOWT_CODE_ONLY` (with `GWT_*` aliases for twig back-compat),
-  plus any variables you define in `.bowt/config`.
+  BOWT_REPO_NAME BOWT_CODE_ONLY`, plus any variables you define in
+  `.bowt/config`.
 
 Every worktree gets a distinct `$offset` (0, 1, 2, …) and `$port`
 (`BOWT_PORT_BASE + offset`, base 8000 by default). Key **everything** off these

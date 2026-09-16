@@ -2,15 +2,12 @@
 // a `bowt <cmd>` by dropping <configDir>/extensions/<cmd>.sh, without patching
 // bowt. When <cmd> is not a built-in, bowt resolves and runs the script as a
 // subprocess — inherited stdio, propagated exit code — with the per-worktree
-// BOWT_*/GWT_* environment injected. This is the git-style "dispatch an unknown
+// BOWT_* environment injected. This is the git-style "dispatch an unknown
 // command to an external program" pattern.
 //
-// Contract difference from twig: twig's extensions were *sourced* bash
-// functions (_twig_ext_<cmd>), because twig itself was a shell function that
-// could source them into its own process. A compiled bowt binary cannot source
-// a bash function, so bowt's contract is an INVOKABLE script — one that does its
-// work directly when run, not one that defines a function. Migrating the
-// existing twig _twig_ext_* extensions to this contract is out of scope here.
+// bowt's extension contract is an INVOKABLE script: one that does its work
+// directly when run (a compiled bowt binary runs it as a subprocess), not one
+// that defines a function.
 package extension
 
 import (
@@ -66,7 +63,7 @@ type Extension struct {
 }
 
 // Dir returns the extensions directory for a config dir, or "" when configDir
-// is "" (no .bowt/.twig).
+// is "" (no .bowt/).
 func Dir(configDir string) string {
 	if configDir == "" {
 		return ""

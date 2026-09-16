@@ -29,8 +29,8 @@ func newNewCmd() *cobra.Command {
 		Long: `Create a git worktree for <branch> (from base, defaulting to the main repo's
 current branch), register it, allocate a port/offset, and run the setup hooks.
 
---code-only registers a lightweight worktree: BOWT_CODE_ONLY=1 (and the
-GWT_CODE_ONLY alias) is exported to the hooks and to 'bowt exec', so a repo's
+--code-only registers a lightweight worktree: BOWT_CODE_ONLY=1 is exported to
+the hooks and to 'bowt exec', so a repo's
 setup.sh/teardown.sh can skip the heavy per-worktree provisioning. Without it a
 worktree is 'full'.`,
 		Example: `  bowt new feature/login
@@ -117,7 +117,7 @@ func newExecCmd() *cobra.Command {
 		Use:   "exec <branch> [--] <cmd> [args...]",
 		Short: "run a command inside a worktree",
 		Long: `Run <cmd> inside the worktree for <branch>, with the per-worktree environment
-(BOWT_*/GWT_* + config vars) injected — the same environment the hooks see.
+(BOWT_* + config vars) injected — the same environment the hooks see.
 
 Use -- to separate bowt from a command that has its own flags:
   bowt exec feature -- pytest -x`,
@@ -238,7 +238,7 @@ func cmdExec(st state.Store, args []string) error {
 		return fmt.Errorf("no worktree registered for %q", branch)
 	}
 
-	// Inject the per-worktree env (BOWT_*/GWT_* + config vars) so the command
+	// Inject the per-worktree env (BOWT_* + config vars) so the command
 	// sees the same environment as the hooks. A broken config is a warning, not
 	// a hard failure — exec stays usable.
 	vars, err := config.Load(run.Exec{Stderr: os.Stderr}, config.Dir(main))
