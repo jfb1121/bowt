@@ -13,7 +13,7 @@ an agent drives bowt exactly the way you do.
 **The tour** — isolation, the command center, and the Plan → Impl → Review →
 Gate → PR pipeline (26s, with sound):
 
-<video src="https://github.com/jfb1121/bowt/raw/main/docs/brag.mp4" poster="https://github.com/jfb1121/bowt/raw/main/docs/brag.jpg" controls muted playsinline width="900"></video>
+[![bowt — the tour (click to play)](docs/brag.jpg)](docs/brag.mp4)
 
 ![bowt running work lanes](docs/demo.gif)
 
