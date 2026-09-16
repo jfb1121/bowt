@@ -19,8 +19,7 @@ Review → Gate → PR pipeline in 26 seconds (click to play):
 
 > **Pre-1.0.** The worktree core and the agent/orchestration layer (`spawn`,
 > `gate`, `review`, `research`, `land`, lanes) are in and tested. A few
-> conveniences (the Claude statusline, docs injection) aren't in yet — see
-> [`PORTING.md`](PORTING.md).
+> conveniences (the Claude statusline, docs injection) aren't in yet.
 
 ## Design
 
@@ -126,9 +125,9 @@ internal/           compiler-private core — importable only within this module
 
 ## Roadmap
 
-Tracked in [`PORTING.md`](PORTING.md). Next: the Claude statusline + docs
-injection, more stack examples, and **remote orchestration over SSH** — an agent
-already drives `ssh host bowt …`, so this is cockpit/provisioning ergonomics on top.
+Next: the Claude statusline + docs injection, more stack examples, and **remote
+orchestration over SSH** — an agent already drives `ssh host bowt …`, so this is
+cockpit/provisioning ergonomics on top.
 
 ## License
 
