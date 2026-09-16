@@ -1,0 +1,62 @@
+# goreleaser config — builds cross-platform binaries on a git tag and publishes
+# a GitHub Release + a Homebrew formula. Validate locally with `goreleaser check`.
+version: 2
+
+project_name: bowt
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: bowt
+    main: .
+    binary: bowt
+    # modernc.org/sqlite is pure Go — no cgo, so we cross-compile freely.
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: bowt
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+# Publishes a Homebrew cask to the tap repo jfb1121/homebrew-bowt on each release
+# (goreleaser deprecated `brews`/formulae for prebuilt binaries in favour of
+# casks). Requires a PAT with write access to that repo, stored as the
+# HOMEBREW_TAP_TOKEN secret (the default GITHUB_TOKEN can't push to another repo).
+homebrew_casks:
+  - name: bowt
+    repository:
+      owner: jfb1121
+      name: homebrew-bowt
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/jfb1121/bowt"
+    description: "git worktrees with isolated environments + a harness for parallel coding agents"
+    # Strip the quarantine xattr so an unsigned binary runs without a Gatekeeper
+    # prompt (we don't code-sign the release binaries).
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bowt"]
+          end

@@ -20,3 +20,6 @@ subagent/
 .bowt/gate.json
 .bowt/lane-*.log
 .bowt/lane-*.spec.json
+
+# goreleaser build output
+dist/
