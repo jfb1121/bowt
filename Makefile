@@ -1,6 +1,6 @@
 BINARY  := bowt
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -X main.version=$(VERSION)
+LDFLAGS := -X github.com/jfb1121/bowt/internal/cli.version=$(VERSION)
 
 .PHONY: help build test race vet fmt fmt-check lint check install tidy clean
 
