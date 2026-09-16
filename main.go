@@ -49,12 +49,13 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "bowt",
-		Short: "git worktrees with isolated environments",
-		Long: `bowt — git worktrees with isolated environments.
+		Short: "bunch of worktrees — isolated environments for humans and agents",
+		Long: `bowt — bunch of worktrees.
 
-Every branch gets its own worktree with an allocated port/offset. Commands emit
-JSON by default whenever stdout is not a terminal, so agents parse structured
-output instead of scraping tables.`,
+Git worktrees with isolated environments: every branch gets its own worktree
+with an allocated port/offset. A tool for humans and agents alike — commands
+emit JSON by default whenever stdout is not a terminal, so agents parse
+structured output instead of scraping tables.`,
 		Version: version,
 		// Own our error/usage output (see main): print "bowt: <err>" ourselves.
 		SilenceUsage:  true,
